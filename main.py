@@ -4,9 +4,9 @@ import network
 from umqtt.simple import MQTTClient
 
 # --- KONFIGURACE ---
-WIFI_SSID = "Zatacka"				# nazev APcka
-WIFI_PASS = "Mercedes124"           # heslo na WiFi
-MQTT_SERVER = "192.168.2.166"       # IP adresa Raspberry Pi
+WIFI_SSID = ""				# nazev APcka
+WIFI_PASS = ""           # heslo na WiFi
+MQTT_SERVER = "192.168."       # IP adresa Raspberry Pi
 MQTT_TOPIC = b"joystick/command"
 
 # --- PINY ---
@@ -78,5 +78,6 @@ while True:
             if mqtt: mqtt.publish(MQTT_TOPIC, cmd)
         last_cmd = cmd
         time.sleep_ms(200)
+
 
     time.sleep_ms(500) # Zpomalení výpisu, ať to stíháte číst
