@@ -29,51 +29,64 @@ def notification_handler(sender, data):
         command = data.decode('utf-8').strip()
         print(f"--> Přijato z BLE: {command}")
         mqtt_client.publish(MQTT_TOPIC, command)
-        # print(f"<-- Odesláno do MQTT: {command}") # Zakomentováno pro čistší log
     except Exception as e:
         print(f"Chyba při zpracování: {e}")
 
+def disconnected_callback(client):
+    print("Joystick se odpojil. Okamžitě restartuji čekání na připojení...")
+
 # --- HLAVNÍ SMYČKA ---
 async def main():
-    print("Startuji Stabilní BLE Bridge (Optimalizováno)...")
+    print("Startuji Rychlý Bridge v2 (Direct Connect Mode)...")
     
-    while True:
-        print("Skenuji...")
-        
-        # OPTIMALIZACE 1: Timeout 5s neznamená, že čeká 5s.
-        # Znamená to "hledej AŽ 5 sekund". Jakmile ho najde (třeba za 0.2s), okamžitě pokračuje dál.
-        # Krátké timeouty (např. 1s) způsobují, že se skener pořád restartuje, což zdržuje.
+    target_address = None
+
+    # FÁZE 1: ZÍSKÁNÍ ADRESY (Skenujeme jen jednou na začátku)
+    print("🔍 První hledání: Prosím, probuďte joystick (hýbejte páčkou)...")
+    
+    while target_address is None:
         device = await BleakScanner.find_device_by_filter(
             lambda d, ad: d.name and d.name == ESP_NAME,
             timeout=5.0
         )
+        if device:
+            target_address = device.address
+            print(f"ADRESA NALEZENA: {target_address}")
+            print("Vypínám skener. Odteď se připojuji PŘÍMO (bude to rychlejší).")
+        else:
+            print("... stále hledám ...")
 
-        if not device:
-            # Pokud nenajde, nečekáme a jdeme ihned skenovat znovu
-            continue
-
-        print(f"Nalezeno: {device.name} - Připojuji...")
+    # FÁZE 2: NEKONEČNÁ SMYČKA PŘÍMÉHO PŘIPOJOVÁNÍ
+    # Už nikdy neskenujeme. Jen se dokola snažíme připojit na známou adresu.
+    while True:
+        print(f"📡 Čekám na probuzení joysticku ({target_address})...")
         
         try:
-            async with BleakClient(device) as client:
+            # timeout=20.0 znamená: RPi bude 20 sekund aktivně 'číhat' na tuto adresu.
+            # Jakmile se ESP32 probudí, RPi to zachytí okamžitě (bez skenování).
+            async with BleakClient(
+                target_address, 
+                disconnected_callback=disconnected_callback, 
+                timeout=20.0
+            ) as client:
+                
                 print("PŘIPOJENO! Ovladač je aktivní.")
                 
                 # Aktivace notifikací
                 await client.start_notify(UART_TX_CHAR_UUID, notification_handler)
                 
-                # Smyčka udržující spojení
+                # Smyčka udržující spojení naživu
                 while client.is_connected:
-                    # OPTIMALIZACE 2: Kontrolujeme stav častěji (0.1s),
-                    # abychom rychle zjistili odpojení a mohli začít hned hledat.
-                    await asyncio.sleep(0.1)
-                    
-                print("Zařízení se odpojilo (asi šlo spát).")
-                
+                    await asyncio.sleep(0.5)
+            
+            # Zde se kód dostane, jen když se zařízení odpojí
+            # Smyčka while True zajistí okamžitý návrat k pokusu o připojení
+
         except Exception as e:
-            # Pokud se připojení nepovede (např. joystick usnul těsně před připojením)
-            print(f"Chyba spojení: {e}")
-            # Malá pauza, aby se Bluetooth nezahltilo, pokud je joystick vypnutý
-            await asyncio.sleep(0.5)
+            # Pokud vyprší 20s timeout (nikdo se neprobudil), nebo se připojení nezdaří:
+            # print(f"Info: {e}") # Pro debug odkomentujte
+            # Krátká pauza a zkusíme to hned znovu
+            await asyncio.sleep(0.1)
 
 if __name__ == "__main__":
     try:
