@@ -43,6 +43,7 @@ async def main():
     while True:
         print("Skenuji a hledám ESP32-Joystick...")
         device = await BleakScanner.find_device_by_filter(
+            timeout=1.5
             lambda d, ad: d.name and d.name == ESP_NAME
         )
 
@@ -75,4 +76,5 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Ukončuji...")
+
         mqtt_client.loop_stop()
