@@ -20,10 +20,6 @@ except Exception as e:
     print(f"Chyba MQTT: {e}")
     sys.exit(1)
 
-# Globální proměnné
-found_device = None
-scan_event = asyncio.Event()
-
 def notification_handler(sender, data):
     try:
         command = data.decode('utf-8').strip()
@@ -33,55 +29,52 @@ def notification_handler(sender, data):
         pass
 
 def disconnected_callback(client):
-    print("Joystick se nečekaně odpojil.")
-
-# Tato funkce se spustí OKAMŽITĚ, jakmile RPi zachytí signál
-def detection_callback(device, advertisement_data):
-    global found_device
-    if device.name == ESP_NAME:
-        print(f"RADAR: Zachycen {device.name} ({device.address})")
-        found_device = device
-        scan_event.set() # Signál pro hlavní smyčku: "Mám ho, zastav skenování!"
+    print("Joystick se odpojil (spojení ztraceno).")
 
 async def main():
-    global found_device
-    print("Startuji Chytrý BLE Bridge...")
+    print("Startuji Rychlý Bridge v2 (Direct Connect)...")
+    
+    target_address = None
 
+    # FÁZE 1: ZÍSKÁNÍ ADRESY (Skenujeme jen jednou na začátku)
+    print("Hledám joystick, abych zjistil jeho adresu...")
+    
+    while target_address is None:
+        device = await BleakScanner.find_device_by_filter(
+            lambda d, ad: d.name and d.name == ESP_NAME,
+            timeout=5.0
+        )
+        if device:
+            target_address = device.address
+            print(f"ADRESA NALEZENA: {target_address}")
+            print("Vypínám skener. Odteď se připojuji napřímo.")
+        else:
+            print("... stále hledám (zkuste pohnout páčkou) ...")
+
+    # FÁZE 2: NEKONEČNÁ SMYČKA PŘÍMÉHO PŘIPOJOVÁNÍ
+    # Už nikdy neskenujeme. Jen se dokola snažíme připojit na známou adresu.
     while True:
-        found_device = None
-        scan_event.clear()
-        
-        print("Čekám na pohyb joysticku (Radar zapnut)...")
-        
-        # Spustíme skener na pozadí
-        scanner = BleakScanner(detection_callback=detection_callback)
-        await scanner.start()
+        print(f"Zkouším přímé připojení k {target_address}...")
         
         try:
-            # Čekáme na událost (max 60 sekund, pak restart skeneru pro pročištění)
-            await asyncio.wait_for(scan_event.wait(), timeout=60.0)
-        except asyncio.TimeoutError:
-            await scanner.stop()
-            continue
+            # timeout=5.0: Zkouší se připojit 5 sekund, pokud se nepovede, zkusí to hned znovu
+            async with BleakClient(target_address, disconnected_callback=disconnected_callback, timeout=5.0) as client:
+                print("PŘIPOJENO! Ovladač je aktivní.")
+                
+                # Aktivace notifikací
+                await client.start_notify(UART_TX_CHAR_UUID, notification_handler)
+                
+                # Smyčka udržující program naživu, dokud je spojení aktivní
+                while client.is_connected:
+                    await asyncio.sleep(1.0)
             
-        # Jakmile ho máme, okamžitě zastavíme skener (šetříme CPU a Bluetooth)
-        await scanner.stop()
-        
-        if found_device:
-            print(f"Připojuji se k {found_device.address}...")
-            try:
-                async with BleakClient(found_device, disconnected_callback=disconnected_callback) as client:
-                    print("PŘIPOJENO! Ovladač je aktivní.")
-                    await client.start_notify(UART_TX_CHAR_UUID, notification_handler)
-                    
-                    # Smyčka udržující spojení
-                    while client.is_connected:
-                        await asyncio.sleep(0.5)
-                        
-            except Exception as e:
-                print(f"Chyba připojení: {e}")
-                # Krátká pauza, aby se Bluetooth nezahltilo
-                await asyncio.sleep(1.0)
+            # Zde se kód dostane, jen když 'async with' skončí (odpojení)
+            print("INFO: Cyklus připojení ukončen, jdu to zkusit znovu...")
+
+        except Exception as e:
+            # Pokud se připojení nepovede (joystick spí), vypíšeme chybu a zkusíme to hned znovu
+            # print(f"Čekám na joystick... ({e})") # Odkomentujte pro detailní výpis
+            await asyncio.sleep(0.5) # Malá pauza, aby procesor nejel na 100%
 
 if __name__ == "__main__":
     try:
