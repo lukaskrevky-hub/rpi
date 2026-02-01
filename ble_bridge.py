@@ -1,5 +1,5 @@
 import asyncio
-from bleak import BleakScanner, BleakClient
+from bleak import BleakScanner, BleakClient, BleakError
 import paho.mqtt.client as mqtt
 import sys
 
@@ -12,15 +12,15 @@ UART_TX_CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 MQTT_BROKER = "localhost"
 MQTT_TOPIC = "joystick/command"
 
-# Oprava pro novější verze knihovny (odstranění warningu)
+# Oprava pro novější verze knihovny
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 try:
     mqtt_client.connect(MQTT_BROKER, 1883, 60)
     mqtt_client.loop_start()
-    print(f"MQTT připojeno k {MQTT_BROKER}")
+    print(f"✅ MQTT připojeno k {MQTT_BROKER}")
 except Exception as e:
-    print(f"Chyba MQTT: {e}")
+    print(f"❌ Chyba MQTT: {e}")
     sys.exit(1)
 
 # --- CALLBACK FUNKCE ---
@@ -33,11 +33,11 @@ def notification_handler(sender, data):
         print(f"Chyba při zpracování: {e}")
 
 def disconnected_callback(client):
-    print("Joystick se odpojil. Okamžitě restartuji čekání na připojení...")
+    print("⚠️ Joystick se odpojil.")
 
 # --- HLAVNÍ SMYČKA ---
 async def main():
-    print("Startuji Rychlý Bridge v2 (Direct Connect Mode)...")
+    print("🚀 Startuji Synchronizovaný Bridge...")
     
     target_address = None
 
@@ -51,42 +51,49 @@ async def main():
         )
         if device:
             target_address = device.address
-            print(f"ADRESA NALEZENA: {target_address}")
-            print("Vypínám skener. Odteď se připojuji PŘÍMO (bude to rychlejší).")
+            print(f"🎯 ADRESA NALEZENA: {target_address}")
+            print("🛑 Vypínám skener. Přecházím na agresivní připojování.")
         else:
             print("... stále hledám ...")
 
-    # FÁZE 2: NEKONEČNÁ SMYČKA PŘÍMÉHO PŘIPOJOVÁNÍ
-    # Už nikdy neskenujeme. Jen se dokola snažíme připojit na známou adresu.
+    # FÁZE 2: NEKONEČNÁ SMYČKA PŘIPOJOVÁNÍ
     while True:
-        print(f"📡 Čekám na probuzení joysticku ({target_address})...")
+        print(f"📡 Čekám na signál od {target_address}...")
         
+        client = None
         try:
-            # timeout=20.0 znamená: RPi bude 20 sekund aktivně 'číhat' na tuto adresu.
-            # Jakmile se ESP32 probudí, RPi to zachytí okamžitě (bez skenování).
-            async with BleakClient(
-                target_address, 
-                disconnected_callback=disconnected_callback, 
-                timeout=20.0
-            ) as client:
-                
-                print("PŘIPOJENO! Ovladač je aktivní.")
-                
-                # Aktivace notifikací
-                await client.start_notify(UART_TX_CHAR_UUID, notification_handler)
-                
-                # Smyčka udržující spojení naživu
-                while client.is_connected:
-                    await asyncio.sleep(0.5)
+            # timeout=10.0: Zkoušíme se připojit 10 sekund.
+            # Pokud joystick spí, vyhodí to chybu (to je v pořádku).
+            # Pokud se probudí, chytne se to téměř hned.
+            client = BleakClient(target_address, disconnected_callback=disconnected_callback, timeout=10.0)
+            await client.connect()
             
-            # Zde se kód dostane, jen když se zařízení odpojí
-            # Smyčka while True zajistí okamžitý návrat k pokusu o připojení
-
+            print("✅ PŘIPOJENO! Ovladač je aktivní.")
+            
+            # Aktivace notifikací
+            await client.start_notify(UART_TX_CHAR_UUID, notification_handler)
+            
+            # Smyčka udržující spojení naživu
+            while client.is_connected:
+                await asyncio.sleep(0.5)
+        
+        except BleakError:
+            # Specifická chyba Bluetooth (zařízení nedostupné/spí)
+            # Nevypisujeme celý traceback, jen info, že čekáme
+            # print(".", end="", flush=True)
+            await asyncio.sleep(0.2)
+            
         except Exception as e:
-            # Pokud vyprší 20s timeout (nikdo se neprobudil), nebo se připojení nezdaří:
-            # print(f"Info: {e}") # Pro debug odkomentujte
-            # Krátká pauza a zkusíme to hned znovu
-            await asyncio.sleep(0.1)
+            print(f"❌ Chyba: {e}")
+            await asyncio.sleep(1.0)
+            
+        finally:
+            # Důležité: Ujistíme se, že je klient čistě odpojen před dalším pokusem
+            if client:
+                try:
+                    await client.disconnect()
+                except:
+                    pass
 
 if __name__ == "__main__":
     try:
