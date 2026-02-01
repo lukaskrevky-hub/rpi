@@ -20,10 +20,6 @@ except Exception as e:
     print(f"Chyba MQTT: {e}")
     sys.exit(1)
 
-# Globální proměnné pro řízení stavu
-found_device = None
-stop_event = asyncio.Event()
-
 def notification_handler(sender, data):
     try:
         command = data.decode('utf-8').strip()
@@ -32,52 +28,50 @@ def notification_handler(sender, data):
     except:
         pass
 
-# Tato funkce se spustí OKAMŽITĚ, jakmile RPi zachytí signál
-def detection_callback(device, advertisement_data):
-    global found_device
-    # Hledáme podle jména
-    if device.name == ESP_NAME:
-        print(f"SIGNÁL ZACHYCEN: {device.name} ({device.address})")
-        found_device = device
-        stop_event.set() # Okamžitě ukončí skenování a jde se připojovat
-
 async def main():
-    global found_device
-    print("Startuji Rychlý BLE Bridge...")
+    print("Startuji BLE Bridge (Režim přímého připojení)...")
+    
+    target_address = None
 
     while True:
-        found_device = None
-        stop_event.clear()
-        
-        print("📡 Čekám na probuzení joysticku...")
-        
-        # Spustíme skener na pozadí s callbackem
-        scanner = BleakScanner(detection_callback=detection_callback)
-        await scanner.start()
-        
-        # Čekáme, dokud callback neřekne "MÁM HO!"
-        # Tím odpadá zbytečné čekání na timeout
-        await stop_event.wait()
-        
-        # Jakmile ho máme, zastavíme skener a jdeme se připojit
-        await scanner.stop()
-        
-        if found_device:
-            print(f"Připojuji se k {found_device.address}...")
-            try:
-                async with BleakClient(found_device) as client:
-                    print("PŘIPOJENO! Ovladač je aktivní.")
-                    await client.start_notify(UART_TX_CHAR_UUID, notification_handler)
-                    
-                    # Smyčka udržující spojení
-                    while client.is_connected:
-                        await asyncio.sleep(0.1)
-                        
-                    print("Joystick se odpojil (usnul).")
-            except Exception as e:
-                print(f"Chyba připojení: {e}")
-                # Krátká pauza před dalším pokusem, aby se Bluetooth nezahltilo
+        # FÁZE 1: HLEDÁNÍ (Pouze pokud neznáme adresu)
+        if target_address is None:
+            print("Skenuji okolí a hledám joystick...")
+            device = await BleakScanner.find_device_by_filter(
+                lambda d, ad: d.name and d.name == ESP_NAME,
+                timeout=10.0
+            )
+            
+            if not device:
+                print("Joystick nenalezen, zkouším znovu...")
                 await asyncio.sleep(1.0)
+                continue
+                
+            target_address = device.address
+            print(f"Ukládám adresu joysticku: {target_address}")
+        
+        # FÁZE 2: PŘÍMÉ PŘIPOJOVÁNÍ (Smyčka pokusů)
+        # Tady se točíme, dokud joystick spí. Jakmile se probudí, okamžitě se chytne.
+        print(f"Zkouším se připojit k {target_address}...")
+        
+        try:
+            # timeout=3.0 znamená, že zkouší připojení 3 sekundy, pak to zkusí znovu
+            async with BleakClient(target_address, timeout=3.0) as client:
+                print("PŘIPOJENO! Ovladač je aktivní.")
+                
+                await client.start_notify(UART_TX_CHAR_UUID, notification_handler)
+                
+                # Udržujeme spojení živé
+                while client.is_connected:
+                    await asyncio.sleep(0.1)
+                    
+                print("Joystick se odpojil (usnul).")
+                
+        except Exception as e:
+            # Joystick asi spí, takže se připojení nepovedlo.
+            # Nevadí, zkusíme to hned znovu v dalším cyklu.
+            # print(f"Čekám na probuzení... ({e})") 
+            await asyncio.sleep(0.2) # Malá pauza, aby procesor nejel na 100%
 
 if __name__ == "__main__":
     try:
