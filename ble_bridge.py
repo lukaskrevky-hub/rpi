@@ -28,16 +28,20 @@ def notification_handler(sender, data):
     except:
         pass
 
+# Event pro signalizaci odpojení
+disconnect_event = asyncio.Event()
+
 def disconnected_callback(client):
-    print("Joystick usnul (odpojeno). Čekám na probuzení...")
+    print("Joystick se odpojil. Restartuji cyklus připojení...")
+    disconnect_event.set()
 
 async def main():
-    print("Startuji Stabilní Bridge (Režim Číhání)...")
+    print("Startuji Robustní Bridge (Direct Connect Loop)...")
     
     target_address = None
 
-    # 1. NAJÍT ADRESU (Jednorázově)
-    print("První skenování: Hýbejte joystickem...")
+    # 1. NAJÍT ADRESU (Jednorázově na začátku)
+    print("První skenování: Probuďte joystick...")
     while target_address is None:
         device = await BleakScanner.find_device_by_filter(
             lambda d, ad: d.name and d.name == ESP_NAME,
@@ -45,40 +49,39 @@ async def main():
         )
         if device:
             target_address = device.address
-            print(f"ZJIŠTĚNA ADRESA: {target_address}")
+            print(f"ADRESA NALEZENA: {target_address}")
+            print("Vypínám skener. Odteď se připojuji přímo na MAC adresu.")
         else:
             print("... stále hledám ...")
 
-    # 2. SMYČKA ČÍHÁNÍ A PŘIPOJOVÁNÍ
+    # 2. NEKONEČNÁ SMYČKA PŘÍMÉHO PŘIPOJOVÁNÍ
+    # Zde už neskenujeme. Jen se snažíme připojit na známou adresu.
+    # BlueZ (Linux Bluetooth stack) si sám pohlídá, kdy se zařízení objeví.
     while True:
-        print("Číhám na signál probuzení...")
+        disconnect_event.clear()
+        print(f"Čekám na {target_address} (Připojování)...")
         
-        # Tady RPi jen poslouchá. Nesnaží se připojit, dokud ESP32 nezačne vysílat.
-        # To šetří Bluetooth čip před zahlcením chybami.
-        device = await BleakScanner.find_device_by_address(
-            target_address, 
-            timeout=20.0 # Čekáme 20s, pak se smyčka protočí
-        )
+        try:
+            # timeout=None nebo vysoké číslo by znamenalo čekat navždy
+            # Dáme 15s timeout, abychom občas vyčistili stav, kdyby se to zaseklo
+            async with BleakClient(target_address, disconnected_callback=disconnected_callback, timeout=15.0) as client:
+                print("PŘIPOJENO! Čekám na stabilizaci...")
+                
+                # Krátká pauza pro stabilizaci spojení před zápisem
+                await asyncio.sleep(0.5) 
+                
+                await client.start_notify(UART_TX_CHAR_UUID, notification_handler)
+                print("🚀 Ovladač je plně aktivní a data proudí.")
 
-        if device:
-            print(f"Signál zachycen! Připojuji se k {target_address}...")
-            
-            try:
-                async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=5.0) as client:
-                    print("PŘIPOJENO! Ovladač je aktivní.")
-                    
-                    await client.start_notify(UART_TX_CHAR_UUID, notification_handler)
-                    
-                    # Smyčka udržující spojení
-                    while client.is_connected:
-                        await asyncio.sleep(1.0)
-                        
-            except Exception as e:
-                print(f"Chyba připojení (asi usnul příliš rychle): {e}")
-                await asyncio.sleep(0.5)
-        else:
-            # Timeout vypršel, joystick asi spí. Zkusíme číhat znovu.
-            pass
+                # Čekáme na signál odpojení (místo smyčky s sleepem)
+                # Toto je efektivnější a reaguje okamžitě na pád spojení
+                await disconnect_event.wait()
+                
+        except Exception as e:
+            # Toto nastane, když timeout vyprší (joystick spí) nebo se připojení nezdaří
+            # Je to normální stav, prostě to zkusíme znovu v dalším cyklu
+            # print(f"Info: {e}") 
+            await asyncio.sleep(0.1)
 
 if __name__ == "__main__":
     try:
