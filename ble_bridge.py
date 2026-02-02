@@ -4,7 +4,7 @@ import paho.mqtt.client as mqtt
 import sys
 
 # ==========================================
-# VAŠE ZJIŠTĚNÁ MAC ADRESA
+# ZJIŠTĚNÁ MAC ADRESA
 TARGET_MAC = "38:18:2B:B3:80:8E"
 # ==========================================
 
@@ -16,7 +16,7 @@ MQTT_BROKER = "localhost"
 MQTT_TOPIC = "joystick/command"
 
 # --- MQTT SETUP ---
-# Používáme VERSION2 pro potlačení varování
+# VERSION2 pro potlačení varování
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 try:
@@ -79,3 +79,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("Ukončuji...")
         mqtt_client.loop_stop()
+
