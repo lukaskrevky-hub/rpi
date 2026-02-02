@@ -17,56 +17,52 @@ mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 try:
     mqtt_client.connect(MQTT_BROKER, 1883, 60)
     mqtt_client.loop_start()
-    print("✅ MQTT OK")
+    print("MQTT OK - Bridge připraven")
 except:
     sys.exit(1)
 
 def notification_handler(sender, data):
-    cmd = data.decode('utf-8').strip()
-    print(f"--> {cmd}")
-    mqtt_client.publish(MQTT_TOPIC, cmd)
+    # Přijímáme data tiše, vypisujeme jen při změně nebo pro debug
+    # Pro čistotu konzole zde nevypisujeme každý paket, pokud to není nutné
+    try:
+        command = data.decode('utf-8').strip()
+        # print(f"--> {command}") # Odkomentujte pro debug
+        mqtt_client.publish(MQTT_TOPIC, command)
+    except:
+        pass
 
 def disconnected_callback(client):
-    print("⚠️ Odpojeno. Restartuji skener...")
+    print("Odpojeno (Joystick usnul).")
 
 async def main():
-    print(f"🚀 Startuji Reaktivní Bridge na {TARGET_MAC}...")
+    print(f"Čekám na joystick {TARGET_MAC}...")
     
     while True:
-        # Fáze 1: SKENOVÁNÍ (Čekáme na probuzení)
-        # RPi pasivně naslouchá. Dokud ESP32 nezačne vysílat, RPi nic nedělá.
-        # Timeout 100s znamená, že čeká dlouho a nezatežuje CPU restartováním skeneru.
-        print("📡 Skenuji a čekám na signál...")
         try:
+            # Fáze 1: Čekání na probuzení (Skenování)
+            # Používáme timeout 5s pro rychlejší reakci smyčky, 
+            # ale skener na pozadí běží a odchytává reklamy
             device = await BleakScanner.find_device_by_address(
                 TARGET_MAC, 
-                timeout=100.0 
+                timeout=20.0 
             )
-        except Exception:
-            device = None
-        
-        if not device:
-            # Timeout vypršel (joystick dlouho spí), zkusíme to znovu
-            continue
+            
+            if not device:
+                continue
 
-        # Fáze 2: PŘIPOJENÍ (Okamžitý útok)
-        print("⚡ SIGNÁL ZACHYCEN! Okamžitě připojuji...")
-        
-        try:
-            # Použijeme nalezený objekt 'device', to je rychlejší než adresa
+            # Fáze 2: Připojení
+            print("Detekován signál -> Připojuji...")
+            
             async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=5.0) as client:
-                print("✅ PŘIPOJENO!")
+                print("PŘIPOJENO! Ovladač aktivní.")
                 await client.start_notify(UART_TX_CHAR_UUID, notification_handler)
                 
-                # Smyčka udržující spojení naživu
+                # Smyčka udržující spojení
                 while client.is_connected:
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(1.0)
             
-            print("ℹ️ Klient ukončen (odpojení).")
-
-        except Exception as e:
-            # Pokud se připojení nepovede (např. rušení), zkusíme to hned znovu
-            print(f"Chyba připojení: {e}")
+        except Exception:
+            # Chyby připojení ignorujeme (joystick asi usnul během procesu), zkusíme znovu
             await asyncio.sleep(0.1)
 
 if __name__ == "__main__":
