@@ -1,10 +1,10 @@
 import asyncio
-from bleak import BleakClient, BleakError
+from bleak import BleakScanner, BleakClient
 import paho.mqtt.client as mqtt
 import sys
 
 # ==========================================
-# VAŠE MAC ADRESA
+# ZDE ZADEJTE VAŠI MAC ADRESU ESP32
 TARGET_MAC = "38:18:2B:B3:80:8E"
 # ==========================================
 
@@ -27,37 +27,47 @@ def notification_handler(sender, data):
     mqtt_client.publish(MQTT_TOPIC, cmd)
 
 def disconnected_callback(client):
-    print("⚠️ Odpojeno. Okamžitý restart...")
+    print("⚠️ Odpojeno. Restartuji skener...")
 
 async def main():
-    print(f"🚀 Startuji Agresivní Direct Connect na {TARGET_MAC}...")
-    print("TIP: Pokud to nefunguje, restartujte Bluetooth: 'sudo systemctl restart bluetooth'")
+    print(f"🚀 Startuji Reaktivní Bridge na {TARGET_MAC}...")
     
     while True:
+        # Fáze 1: SKENOVÁNÍ (Čekáme na probuzení)
+        # RPi pasivně naslouchá. Dokud ESP32 nezačne vysílat, RPi nic nedělá.
+        # Timeout 100s znamená, že čeká dlouho a nezatežuje CPU restartováním skeneru.
+        print("📡 Skenuji a čekám na signál...")
         try:
-            print("🔗 Pokus o připojení...")
-            
-            # timeout=20.0: RPi bude 20 sekund viset na lince a čekat, až se ESP ozve.
-            # Jakmile ESP pípne, spojení se naváže OKAMŽITĚ (bez skenování).
-            async with BleakClient(TARGET_MAC, disconnected_callback=disconnected_callback, timeout=20.0) as client:
-                print("✅ PŘIPOJENO! Ovladač je aktivní.")
-                
-                # Zapnutí notifikací
+            device = await BleakScanner.find_device_by_address(
+                TARGET_MAC, 
+                timeout=100.0 
+            )
+        except Exception:
+            device = None
+        
+        if not device:
+            # Timeout vypršel (joystick dlouho spí), zkusíme to znovu
+            continue
+
+        # Fáze 2: PŘIPOJENÍ (Okamžitý útok)
+        print("⚡ SIGNÁL ZACHYCEN! Okamžitě připojuji...")
+        
+        try:
+            # Použijeme nalezený objekt 'device', to je rychlejší než adresa
+            async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=5.0) as client:
+                print("✅ PŘIPOJENO!")
                 await client.start_notify(UART_TX_CHAR_UUID, notification_handler)
                 
-                # Smyčka udržující spojení
+                # Smyčka udržující spojení naživu
                 while client.is_connected:
-                    await asyncio.sleep(0.1)
-                    
-        except BleakError as e:
-            # "Device not found" nebo "Not connected" - to je normální, když ESP spí.
-            # print(".", end="", flush=True)
-            # Okamžitě zkusíme znovu - žádné dlouhé čekání!
-            await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.5)
             
+            print("ℹ️ Klient ukončen (odpojení).")
+
         except Exception as e:
-            print(f"Chyba: {e}")
-            await asyncio.sleep(0.5)
+            # Pokud se připojení nepovede (např. rušení), zkusíme to hned znovu
+            print(f"Chyba připojení: {e}")
+            await asyncio.sleep(0.1)
 
 if __name__ == "__main__":
     try:
