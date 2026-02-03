@@ -4,14 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Asistivní Hub</title>
-    <!-- Bootstrap CSS (Styly) -->
+    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- FontAwesome (Ikony) -->
+    <!-- FontAwesome Ikony -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <style>
-        body { background-color: #121212; color: white; font-family: 'Segoe UI', sans-serif; }
+        body { 
+            background-color: #121212; 
+            color: white; 
+            font-family: 'Segoe UI', sans-serif; 
+        }
         
+        /* Styl karet */
         .card { 
             transition: all 0.2s; 
             cursor: pointer; 
@@ -31,33 +36,78 @@
         
         /* Horní lišta */
         .top-bar {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 15px 20px; background: #000; border-bottom: 1px solid #333;
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center;
+            padding: 15px 20px; 
+            background: #000; 
+            border-bottom: 1px solid #333;
             margin-bottom: 20px;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
         }
         
+        /* Kontejner pro zprávu a tlačítko */
+        .msg-container { 
+            display: flex; 
+            align-items: center; 
+            gap: 15px;
+        }
+
         /* Indikátor stavu (Badge) */
         .status-badge {
-            font-size: 1rem; padding: 6px 15px; border-radius: 50px; font-weight: bold;
-            display: flex; align-items: center; gap: 8px; text-transform: uppercase;
-            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            font-size: 1rem; 
+            padding: 6px 15px; 
+            border-radius: 50px; 
+            font-weight: bold;
+            display: flex; 
+            align-items: center; 
+            gap: 8px; 
+            text-transform: uppercase;
+            box-shadow: 0 0 10px rgba(0,0,0,0.3);
         }
         
         /* Barvy stavů */
         .status-ready { background-color: #198754; color: white; border: 1px solid #198754; }      /* Zelená */
-        .status-sleep { background-color: #212529; color: #6c757d; border: 1px solid #495057; }   /* Šedá/Červená */
+        .status-sleep { background-color: #212529; color: #6c757d; border: 1px solid #495057; }   /* Šedá */
         .status-conn { background-color: #ffc107; color: black; border: 1px solid #ffc107; }       /* Žlutá */
         
-        .fa-moon { color: #6c757d; }
+        /* Tlačítko Reset (Vyřízeno) */
+        .reset-btn {
+            background-color: #0d6efd; 
+            color: white; 
+            border: none;
+            padding: 5px 15px; 
+            border-radius: 5px; 
+            font-weight: bold;
+            display: none; /* Skryté, dokud není zpráva */
+            cursor: pointer;
+            animation: pulse 2s infinite;
+        }
+        .reset-btn:hover { background-color: #0b5ed7; }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
     </style>
 </head>
 <body>
 
     <!-- Horní lišta -->
     <div class="top-bar">
-        <div id="msg-box" style="font-size: 1.2rem; font-weight: bold; color: #ccc;">Systém připraven</div>
+        <div class="msg-container">
+            <div id="status-message" style="font-size: 1.3rem; font-weight: bold;">Připraveno</div>
+            
+            <!-- TLAČÍTKO PRO RESET (Zobrazí se jen při aktivní hlášce) -->
+            <button id="reset-button" class="reset-btn" onclick="resetMsg()">
+                <i class="fa-solid fa-check"></i> VYŘÍZENO
+            </button>
+        </div>
         
-        <!-- ZDE JE NOVÝ INDIKÁTOR -->
+        <!-- INDIKÁTOR STAVU ESP32 -->
         <div id="connection-indicator" class="status-badge status-sleep">
             <i class="fa-solid fa-moon"></i> <span>SPÍ</span>
         </div>
@@ -67,6 +117,7 @@
         <div class="row g-4">
             {% for item in menu %}
             <div class="col-6 col-md-3">
+                <!-- Karta položky -->
                 <div class="card h-100 text-center p-4 text-white" 
                      id="card-{{ item.id }}" 
                      onclick="manualClick({{ item.id }})">
@@ -80,10 +131,10 @@
         </div>
     </div>
 
-    <!-- JavaScript (AJAX Logika) -->
+    <!-- JavaScript Logika -->
     <script>
         function updateStatus() {
-            // Dotaz na server každých 300ms
+            // Dotazujeme se serveru každých 300ms
             fetch('/api/status')
                 .then(response => response.json())
                 .then(data => {
@@ -92,45 +143,60 @@
                     const activeCard = document.getElementById('card-' + data.selected_index);
                     if (activeCard) activeCard.classList.add('joystick-active');
 
-                    // 2. Aktualizace HLÁŠKY vlevo nahoře
-                    if (data.message) document.getElementById('msg-box').innerText = data.message;
+                    // 2. Aktualizace HLÁŠKY a Tlačítka
+                    const msgBox = document.getElementById('status-message');
+                    const resetBtn = document.getElementById('reset-button');
+                    
+                    msgBox.innerText = data.message;
+                    
+                    // Pokud je zpráva jiná než "Připraveno", ukážeme tlačítko a změníme barvu textu
+                    if (data.message !== "Připraveno") {
+                        msgBox.style.color = "#ffc107"; // Žlutá
+                        resetBtn.style.display = "block";
+                    } else {
+                        msgBox.style.color = "white"; // Bílá
+                        resetBtn.style.display = "none";
+                    }
 
-                    // 3. Aktualizace STAVU OVLADAČE (Barva a Text vpravo nahoře)
+                    // 3. Aktualizace STAVU OVLADAČE (Vpravo nahoře)
                     const badge = document.getElementById('connection-indicator');
                     const icon = badge.querySelector('i');
                     const text = badge.querySelector('span');
                     
-                    // Reset tříd (odstraníme starou barvu)
+                    // Odstraníme staré třídy barev
                     badge.classList.remove('status-ready', 'status-sleep', 'status-conn');
 
-                    // Nastavení nové barvy a ikony podle stavu
                     if (data.connection === 'READY') {
                         badge.classList.add('status-ready');
                         icon.className = 'fa-solid fa-gamepad';
-                        text.innerText = "PŘIPRAVENO";
+                        text.innerText = "AKTIVNÍ";
                     } 
                     else if (data.connection === 'CONNECTING') {
                         badge.classList.add('status-conn');
-                        icon.className = 'fa-solid fa-spinner fa-spin'; // Točící se kolečko
+                        icon.className = 'fa-solid fa-spinner fa-spin';
                         text.innerText = "PŘIPOJOVÁNÍ...";
                     } 
                     else {
-                        // SLEEP nebo cokoli jiného
                         badge.classList.add('status-sleep');
                         icon.className = 'fa-solid fa-moon';
-                        text.innerText = "SPÍ (Deep Sleep)";
+                        text.innerText = "SPÍ";
                     }
                 })
                 .catch(err => console.error("Chyba komunikace:", err));
         }
 
-        // Funkce pro kliknutí myší (pro pečovatele)
+        // Funkce pro kliknutí myší (pro testování nebo pečovatele)
         function manualClick(id) {
             fetch('/api/click/' + id, { method: 'POST' });
         }
+        
+        // Funkce pro resetování zprávy (Tlačítko Vyřízeno)
+        function resetMsg() {
+            fetch('/api/reset', { method: 'POST' });
+        }
 
-        // Spuštění intervalu (300ms)
-        setInterval(updateStatus, 300); 
+        // Spuštění smyčky
+        setInterval(updateStatus, 300);
     </script>
 </body>
 </html>
