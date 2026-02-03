@@ -1,5 +1,5 @@
 import asyncio
-from bleak import BleakClient
+from bleak import BleakClient, BleakError
 import paho.mqtt.client as mqtt
 import sys
 
@@ -8,69 +8,81 @@ import sys
 TARGET_MAC = "38:18:2B:B3:80:8E"
 # ==========================================
 
-# Standardní Nordic UART Service UUID (TX charakteristika)
 UART_TX_CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
 # MQTT Konfigurace
 MQTT_BROKER = "localhost"
 MQTT_TOPIC = "joystick/command"
+TOPIC_STATUS = "joystick/status"  # <--- NOVÉ: Téma pro stav
 
 # --- MQTT SETUP ---
-# Používáme VERSION2 pro potlačení varování
-mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 try:
-    mqtt_client.connect(MQTT_BROKER, 1883, 60)
-    mqtt_client.loop_start()
+    client.connect(MQTT_BROKER, 1883, 60)
+    client.loop_start()
     print("MQTT připojeno.")
 except Exception as e:
     print(f"Chyba MQTT: {e}")
     sys.exit(1)
 
+# --- POMOCNÉ FUNKCE ---
+
+def publish_status(status):
+    """Odeslání stavu do MQTT (retain=True aby si to web načetl i po refresh)"""
+    print(f"STAV -> {status}") 
+    client.publish(TOPIC_STATUS, status, retain=True)
+
 # --- CALLBACK FUNKCE ---
 
 def notification_handler(sender, data):
-    """Tato funkce se spustí, když joystick pošle data."""
     try:
         command = data.decode('utf-8').strip()
-        print(f"--> Přijato: {command}")
-        mqtt_client.publish(MQTT_TOPIC, command)
+        # print(f"--> Přijato: {command}")
+        client.publish(MQTT_TOPIC, command)
     except Exception as e:
         print(f"Chyba dat: {e}")
 
 def disconnected_callback(client):
-    """Informace o odpojení (např. když joystick usne)"""
-    print("Joystick odpojen/uspal se.")
+    print("Joystick odpojen (Callback).")
+    publish_status("SLEEP") # <--- NOVÉ: Hned hlásíme, že spíme
 
 # --- HLAVNÍ SMYČKA ---
 
 async def main():
     print(f"Startuji Direct Connect na {TARGET_MAC}...")
+    publish_status("SLEEP") # Výchozí stav po restartu
     
-    # Nekonečná smyčka, která se snaží připojit
     while True:
         try:
             print(f"Čekám na probuzení joysticku ({TARGET_MAC})...")
             
-            # timeout=15.0: RPi bude 15 sekund aktivně poslouchat na této adrese.
-            # Jakmile se ESP32 probudí a pípne, RPi ho chytí.
+            # Před pokusem o připojení můžeme hlásit, že systém čeká (nebo se připojuje)
+            # Zde dáme CONNECTING těsně před pokus, aby to na webu probliklo žlutě
+            
+            # timeout=15.0: RPi bude 15 sekund čekat na této adrese.
             async with BleakClient(TARGET_MAC, disconnected_callback=disconnected_callback, timeout=15.0) as client:
                 
-                print("PŘIPOJENO! Ovladač je aktivní.")
+                # Pokud jsme se dostali sem, handshaking začal
+                publish_status("CONNECTING") 
+                print("Navazuji spojení...")
                 
-                # Zapneme příjem dat z joysticku
+                # Zapneme notifikace
                 await client.start_notify(UART_TX_CHAR_UUID, notification_handler)
                 
-                # Smyčka udržující spojení naživu, dokud se ESP neodpojí
+                print("PŘIPOJENO! Ovladač je aktivní.")
+                publish_status("READY") # <--- NOVÉ: Zelená na webu!
+                
+                # Smyčka udržující spojení
                 while client.is_connected:
                     await asyncio.sleep(0.5)
             
-            # Sem se dostaneme, když se 'async with' blok ukončí (odpojení)
+            # Zde se kód dostane po odpojení
 
         except Exception as e:
-            # Pokud se připojení nepovede (joystick spí), vyhodí to chybu.
-            # To je v pořádku. Jen chvíli počkáme a zkusíme to znovu.
-            # print(f"Info: {e}") # Pro debug
+            # Pokud se připojení nepovede (joystick spí), je to OK.
+            # Ujistíme se, že stav je SLEEP
+            # publish_status("SLEEP") 
             await asyncio.sleep(0.1)
 
 if __name__ == "__main__":
@@ -78,4 +90,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Ukončuji...")
-        mqtt_client.loop_stop()
+        client.loop_stop()
