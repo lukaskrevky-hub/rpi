@@ -4,59 +4,44 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Asistivní Hub</title>
+    <!-- Bootstrap CSS (Styly) -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- FontAwesome (Ikony) -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <style>
-        body { background-color: #121212; color: white; font-family: 'Segoe UI', sans-serif; }
-        .card { transition: transform 0.2s; cursor: pointer; border: 2px solid #333; background-color: #1e1e1e; }
+        body { background-color: #121212; color: white; }
+        .card { transition: all 0.3s; cursor: pointer; border: 2px solid transparent; }
+        /* Třída pro aktivní položku vybranou joystickem */
         .joystick-active { 
             border-color: #00ff00 !important; 
             transform: scale(1.05); 
-            box-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
-            background-color: #2a2a2a;
+            box-shadow: 0 0 15px #00ff00;
         }
-        .icon-large { font-size: 3.5rem; margin-bottom: 15px; display: block; }
-        
-        /* Horní lišta */
-        .top-bar {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 15px; background: #000; border-bottom: 1px solid #333;
-            margin-bottom: 20px;
-        }
-        
-        /* Indikátor stavu */
-        .status-badge {
-            font-size: 1.2rem; padding: 8px 15px; border-radius: 50px; font-weight: bold;
-            display: flex; align-items: center; gap: 10px;
-        }
-        .status-ready { background-color: #198754; color: white; }      /* Zelená */
-        .status-sleep { background-color: #dc3545; color: white; }      /* Červená */
-        .status-conn { background-color: #ffc107; color: black; }       /* Žlutá */
+        .icon-large { font-size: 3rem; margin-bottom: 10px; }
+        .status-bar { height: 50px; background: #222; padding: 10px; text-align: center; font-size: 1.2rem; }
     </style>
 </head>
 <body>
 
-    <!-- Horní lišta -->
-    <div class="top-bar">
-        <div id="msg-box" style="font-size: 1.5rem; font-weight: bold;">Asistivní Hub</div>
-        
-        <!-- ZDE JE INDIKÁTOR -->
-        <div id="connection-indicator" class="status-badge status-sleep">
-            <i class="fa-solid fa-moon"></i> <span>SPÍ</span>
-        </div>
+    <!-- Horní lišta se stavem -->
+    <div class="status-bar" id="status-message">
+        Systém připraven
     </div>
 
-    <div class="container">
+    <div class="container mt-4">
+        <h2 class="text-center mb-4">Ovládací Panel</h2>
+        
+        <!-- Mřížka s kartami -->
         <div class="row g-4">
             {% for item in menu %}
             <div class="col-6 col-md-3">
-                <div class="card h-100 text-center p-4 text-white" 
+                <div class="card h-100 bg-dark text-white text-center p-3" 
                      id="card-{{ item.id }}" 
                      onclick="manualClick({{ item.id }})">
                     <div class="card-body">
                         <i class="fa-solid {{ item.icon }} icon-large text-{{ item.color }}"></i>
-                        <h4 class="card-title">{{ item.label }}</h4>
+                        <h5 class="card-title">{{ item.label }}</h5>
                     </div>
                 </div>
             </div>
@@ -64,51 +49,35 @@
         </div>
     </div>
 
+    <!-- JavaScript (AJAX Logika) -->
     <script>
+        // Funkce pro aktualizaci stavu (AJAX polling)
+        // Ptá se serveru každých 300ms: "Kde je joystick?"
         function updateStatus() {
             fetch('/api/status')
                 .then(response => response.json())
                 .then(data => {
-                    // 1. Aktualizace MENU (výběr)
+                    // 1. Zrušit zvýraznění všech karet
                     document.querySelectorAll('.card').forEach(c => c.classList.remove('joystick-active'));
-                    const activeCard = document.getElementById('card-' + data.selected_index);
-                    if (activeCard) activeCard.classList.add('joystick-active');
-
-                    // 2. Aktualizace HLÁŠKY
-                    if (data.message) document.getElementById('msg-box').innerText = data.message;
-
-                    // 3. Aktualizace STAVU OVLADAČE (Barva a Text)
-                    const badge = document.getElementById('connection-indicator');
-                    const icon = badge.querySelector('i');
-                    const text = badge.querySelector('span');
                     
-                    // Reset tříd
-                    badge.classList.remove('status-ready', 'status-sleep', 'status-conn');
-
-                    if (data.connection === 'READY') {
-                        badge.classList.add('status-ready');
-                        icon.className = 'fa-solid fa-gamepad';
-                        text.innerText = "PŘIPRAVENO";
-                    } 
-                    else if (data.connection === 'CONNECTING') {
-                        badge.classList.add('status-conn');
-                        icon.className = 'fa-solid fa-spinner fa-spin'; // Točící kolečko
-                        text.innerText = "PŘIPOJOVÁNÍ...";
-                    } 
-                    else {
-                        // SLEEP nebo cokoli jiného
-                        badge.classList.add('status-sleep');
-                        icon.className = 'fa-solid fa-moon';
-                        text.innerText = "SPÍ (Deep Sleep)";
+                    // 2. Zvýraznit tu, kterou vybral joystick
+                    const activeCard = document.getElementById('card-' + data.selected_index);
+                    if (activeCard) {
+                        activeCard.classList.add('joystick-active');
                     }
+
+                    // 3. Aktualizovat text nahoře
+                    document.getElementById('status-message').innerText = data.message;
                 });
         }
 
+        // Funkce, když na kartu klikne pečovatel myší/prstem
         function manualClick(id) {
             fetch('/api/click/' + id, { method: 'POST' });
         }
 
-        setInterval(updateStatus, 300); // Rychlá aktualizace (300ms)
+        // Spouštět aktualizaci v intervalu
+        setInterval(updateStatus, 300);
     </script>
 </body>
 </html>
