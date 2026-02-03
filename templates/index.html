@@ -73,9 +73,9 @@
         .status-sleep { background-color: #212529; color: #6c757d; border: 1px solid #495057; }   /* Šedá */
         .status-conn { background-color: #ffc107; color: black; border: 1px solid #ffc107; }       /* Žlutá */
         
-        /* Tlačítko Reset (Vyřízeno) */
+        /* NOVÉ: Tlačítko Reset (Vyřízeno) */
         .reset-btn {
-            background-color: #0d6efd; 
+            background-color: #dc3545; /* Červená */
             color: white; 
             border: none;
             padding: 5px 15px; 
@@ -83,9 +83,9 @@
             font-weight: bold;
             display: none; /* Skryté, dokud není zpráva */
             cursor: pointer;
-            animation: pulse 2s infinite;
+            animation: pulse 2s infinite; /* Jemné pulzování pro pozornost */
         }
-        .reset-btn:hover { background-color: #0b5ed7; }
+        .reset-btn:hover { background-color: #bb2d3b; }
         
         @keyframes pulse {
             0% { transform: scale(1); }
@@ -99,6 +99,7 @@
     <!-- Horní lišta -->
     <div class="top-bar">
         <div class="msg-container">
+            <!-- Text zprávy -->
             <div id="status-message" style="font-size: 1.3rem; font-weight: bold;">Připraveno</div>
             
             <!-- TLAČÍTKO PRO RESET (Zobrazí se jen při aktivní hlášce) -->
@@ -143,19 +144,19 @@
                     const activeCard = document.getElementById('card-' + data.selected_index);
                     if (activeCard) activeCard.classList.add('joystick-active');
 
-                    // 2. Aktualizace HLÁŠKY a Tlačítka
+                    // 2. Aktualizace HLÁŠKY a Tlačítka Reset
                     const msgBox = document.getElementById('status-message');
                     const resetBtn = document.getElementById('reset-button');
                     
                     msgBox.innerText = data.message;
                     
-                    // Pokud je zpráva jiná než "Připraveno", ukážeme tlačítko a změníme barvu textu
+                    // LOGIKA: Pokud je zpráva jiná než "Připraveno", ukážeme tlačítko a změníme barvu
                     if (data.message !== "Připraveno") {
-                        msgBox.style.color = "#ffc107"; // Žlutá
-                        resetBtn.style.display = "block";
+                        msgBox.style.color = "#ffc107"; // Žlutá pro zvýraznění
+                        resetBtn.style.display = "block"; // Zobrazit tlačítko
                     } else {
-                        msgBox.style.color = "white"; // Bílá
-                        resetBtn.style.display = "none";
+                        msgBox.style.color = "white"; // Bílá (normální)
+                        resetBtn.style.display = "none"; // Skrýt tlačítko
                     }
 
                     // 3. Aktualizace STAVU OVLADAČE (Vpravo nahoře)
@@ -190,7 +191,7 @@
             fetch('/api/click/' + id, { method: 'POST' });
         }
         
-        // Funkce pro resetování zprávy (Tlačítko Vyřízeno)
+        // NOVÉ: Funkce pro resetování zprávy (Tlačítko Vyřízeno)
         function resetMsg() {
             fetch('/api/reset', { method: 'POST' });
         }
