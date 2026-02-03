@@ -9,8 +9,8 @@ app = Flask(__name__)
 # --- STAV SYSTÉMU ---
 system_state = {
     "selected_index": 0,
-    "message": "Načítám...",
-    "connection": "SLEEP",  # Výchozí stav (než přijde první zpráva)
+    "message": "Připraveno",
+    "connection": "SLEEP",  # Výchozí stav (než přijde zpráva z Bridge)
     "last_action": None
 }
 
@@ -22,20 +22,20 @@ MENU_ITEMS = [
     {"id": 3, "label": "POTŘEBUJI POMOC", "icon": "fa-hand-holding-medical", "color": "danger", "speech": "Prosím, pojďte sem, potřebuji pomoc!"}
 ]
 
-# --- MQTT CALLBACK ---
+# --- MQTT SETUP ---
 def on_message(client, userdata, msg):
     try:
         topic = msg.topic
         payload = msg.payload.decode()
         
         # 1. Zpracování STAVU (z ble_bridge.py)
+        # Bridge nám posílá: SLEEP, CONNECTING, nebo READY
         if topic == "joystick/status":
-            print(f"Změna stavu: {payload}")
+            print(f"Stav připojení: {payload}")
             system_state["connection"] = payload
             
         # 2. Zpracování PŘÍKAZŮ (z joysticku)
         elif topic == "joystick/command":
-            # print(f"Příkaz: {payload}") # Debug
             if payload == "UP" or payload == "LEFT":
                 system_state["selected_index"] = (system_state["selected_index"] - 1) % len(MENU_ITEMS)
             elif payload == "DOWN" or payload == "RIGHT":
@@ -46,18 +46,16 @@ def on_message(client, userdata, msg):
     except Exception as e:
         print(f"Chyba MQTT: {e}")
 
-# --- MQTT SETUP ---
-# Používáme VERSION2 pro novější knihovny
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 mqtt_client.on_message = on_message
 
 def start_mqtt():
     while True:
         try:
-            print("Připojuji se k MQTT...")
             mqtt_client.connect("localhost", 1883, 60)
-            # Odebíráme vše pod joystick/ (tedy command i status)
+            # Odebíráme vše pod joystick/ (tedy 'command' i 'status')
             mqtt_client.subscribe("joystick/#")
+            print("MQTT Připojeno a naslouchám...")
             mqtt_client.loop_forever()
         except Exception as e:
             print(f"Chyba MQTT (zkusím za 5s): {e}")
@@ -66,23 +64,22 @@ def start_mqtt():
 # --- FUNKCE AKCÍ ---
 def trigger_action(index):
     item = MENU_ITEMS[index]
-    system_state["message"] = f"Aktivováno: {item['label']}"
+    # Nastavíme zprávu pro horní lištu
+    system_state["message"] = f"POŽADAVEK: {item['label']}"
     system_state["last_action"] = time.time()
     
-    # 1. Hlasový výstup (TTS)
+    # Hlasový výstup (neblokující)
     threading.Thread(target=speak, args=(item['speech'],)).start()
     
-    # 2. Zigbee / IoT Akce
+    # Zigbee logika (placeholder)
     if "type" in item and item["type"] == "zigbee":
         print(f"--> Zigbee akce: {item['label']}")
-        # Zde bude později: mqtt_client.publish("zigbee2mqtt/zasuvka/set", '{"state":"TOGGLE"}')
 
 def speak(text):
-    try:
-        subprocess.run(['espeak-ng', '-v', 'cs', text])
+    try: subprocess.run(['espeak-ng', '-v', 'cs', text])
     except: pass
 
-# --- FLASK WEBOVÉ CESTY (ROUTES) ---
+# --- FLASK WEBOVÉ CESTY ---
 
 @app.route('/')
 def index():
@@ -98,6 +95,14 @@ def web_click(item_id):
     trigger_action(item_id)
     return jsonify({"status": "ok"})
 
+# --- NOVÁ FUNKCE: RESETOVÁNÍ STAVU (Tlačítko Vyřízeno) ---
+@app.route('/api/reset', methods=['POST'])
+def reset_message():
+    print("Resetuji hlášku na 'Připraveno'")
+    system_state["message"] = "Připraveno"
+    return jsonify({"status": "reset"})
+
+# --- SPOUŠTĚČ ---
 if __name__ == '__main__':
     # Spuštění MQTT na pozadí
     threading.Thread(target=start_mqtt, daemon=True).start()
