@@ -4,178 +4,163 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Asistivní Hub</title>
-    <!-- Bootstrap CSS pro základní vzhled -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- FontAwesome pro ikony -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <style>
-        /* Tmavý režim šetří oči a vypadá moderně */
         body { 
-            background-color: #121212; 
-            color: white; 
-            font-family: 'Segoe UI', sans-serif; 
-            overflow-x: hidden; /* Zákaz horizontálního posuvníku */
+            background-color: #121212; color: white; 
+            font-family: 'Segoe UI', sans-serif; overflow-x: hidden;
         }
         
-        /* Styl karet (tlačítek) */
         .card { 
-            transition: all 0.2s ease-in-out; 
-            cursor: pointer; 
-            border: 2px solid #333; 
-            background-color: #1e1e1e;
-            border-radius: 15px;
+            transition: all 0.2s ease-in-out; cursor: pointer; border: 2px solid #333; 
+            background-color: #1e1e1e; border-radius: 15px; min-height: 180px; 
+            display: flex; flex-direction: column; justify-content: center;
         }
         
-        /* Styl pro AKTIVNÍ KARTU (vybranou joystickem) */
         .joystick-active { 
-            border-color: #00ff00 !important; 
-            transform: scale(1.05); 
-            box-shadow: 0 0 25px rgba(0, 255, 0, 0.4);
-            background-color: #2a2a2a;
-            z-index: 10;
+            border-color: #00ff00 !important; transform: scale(1.05); 
+            box-shadow: 0 0 25px rgba(0, 255, 0, 0.4); background-color: #2a2a2a; z-index: 10;
+        }
+
+        /* Animace při potvrzení akce (probliknutí) */
+        @keyframes flashConfirm {
+            0% { background-color: #2a2a2a; transform: scale(1.05); }
+            50% { background-color: #198754; transform: scale(1.15); box-shadow: 0 0 40px #198754; }
+            100% { background-color: #2a2a2a; transform: scale(1.05); }
+        }
+        .flash-animation {
+            animation: flashConfirm 0.4s ease-out;
         }
         
         .icon-large { font-size: 3.5rem; margin-bottom: 15px; display: block; }
         
-        /* Horní lišta */
         .top-bar {
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center;
-            padding: 15px 20px; 
-            background: #000; 
-            border-bottom: 1px solid #333;
-            margin-bottom: 20px;
-            position: sticky;
-            top: 0;
-            z-index: 1000;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 15px 20px; background: #000; border-bottom: 1px solid #333;
+            margin-bottom: 20px; position: sticky; top: 0; z-index: 1000;
         }
         
-        /* Indikátor stavu připojení (vpravo nahoře) */
+        .msg-container { display: flex; align-items: center; gap: 15px; }
         .status-badge {
-            font-size: 1rem; 
-            padding: 6px 15px; 
-            border-radius: 50px; 
-            font-weight: bold;
-            display: flex; 
-            align-items: center; 
-            gap: 8px; 
-            text-transform: uppercase;
+            font-size: 1rem; padding: 6px 15px; border-radius: 50px; font-weight: bold;
+            display: flex; align-items: center; gap: 8px; text-transform: uppercase;
+            box-shadow: 0 0 10px rgba(0,0,0,0.3);
         }
-        .status-ready { background-color: #198754; color: white; }
-        .status-sleep { background-color: #212529; color: #6c757d; border: 1px solid #555; }
-        .status-conn { background-color: #ffc107; color: black; }
-        
-        /* Tlačítko VYŘÍZENO */
+        .status-ready { background-color: #198754; color: white; border: 1px solid #198754; }
+        .status-sleep { background-color: #212529; color: #6c757d; border: 1px solid #495057; }
+        .status-conn { background-color: #ffc107; color: black; border: 1px solid #ffc107; }
         .reset-btn {
             background-color: #dc3545; color: white; border: none;
-            padding: 5px 20px; border-radius: 8px; font-weight: bold;
-            display: none; cursor: pointer; margin-left: 20px;
-            animation: pulse 2s infinite;
+            padding: 5px 15px; border-radius: 5px; font-weight: bold;
+            display: none; cursor: pointer; animation: pulse 2s infinite;
         }
-        @keyframes pulse { 
-            0% { transform: scale(1); } 
-            50% { transform: scale(1.05); } 
-            100% { transform: scale(1); } 
+        .reset-btn:hover { background-color: #bb2d3b; }
+        @keyframes pulse {
+            0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); }
         }
-        
-        /* Nápis aktuálního režimu (nad hláškou) */
-        .mode-label {
-            font-size: 0.85rem; 
-            text-transform: uppercase; 
-            letter-spacing: 2px; 
-            color: #888; 
-            margin-bottom: 2px;
-        }
+        .mode-label { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 2px; color: #888; margin-bottom: 2px; }
+        .brand-select { background-color: #333; color: white; border: 1px solid #555; padding: 4px 10px; border-radius: 6px; font-size: 0.9rem; margin-bottom: 5px; cursor: pointer; }
     </style>
 </head>
 <body>
-
-    <!-- HORNÍ LIŠTA -->
     <div class="top-bar">
         <div>
-            <!-- Indikace režimu (např. OVLÁDÁNÍ TV) -->
             <div id="mode-display" class="mode-label">NAČÍTÁM...</div>
-            
-            <div style="display:flex; align-items:center;">
-                <!-- Hlavní zpráva (např. Mám žízeň) -->
+
+            <!-- Výběr značky TV (zobrazí se pouze pokud z Pythonu přijdou data) -->
+            {% if brands %}
+            <div id="tv-brand-container" style="margin-bottom: 5px;">
+                <label for="tvBrand" style="font-size: 0.8rem; color: #888; margin-right: 5px;">TV:</label>
+                <select id="tvBrand" class="brand-select" onchange="changeBrand(this.value)">
+                    {% for brand in brands %}
+                    <option value="{{ brand }}" {% if brand == current_brand %}selected{% endif %}>
+                        {{ brand|upper }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+
+            <div class="msg-container">
                 <div id="status-message" style="font-size: 1.4rem; font-weight: bold;">Čekám na data...</div>
-                
-                <!-- Tlačítko pro personál -->
                 <button id="reset-button" class="reset-btn" onclick="resetMsg()">
                     <i class="fa-solid fa-check"></i> VYŘÍZENO
                 </button>
             </div>
         </div>
-        
-        <!-- Indikátor ESP32 -->
         <div id="connection-indicator" class="status-badge status-sleep">
             <i class="fa-solid fa-moon"></i> <span>SPÍ</span>
         </div>
     </div>
 
     <div class="container">
-        <!-- ZDE JAVASCRIPT VYTVÁŘÍ KARTY -->
-        <!-- Už tu nejsou natvrdo, ID 'menu-container' je důležité -->
-        <div id="menu-container" class="row g-4"></div>
+        <!-- Třída justify-content-center zajistí, že 5 karet bude zarovnaných na střed -->
+        <div id="menu-container" class="row justify-content-center g-4"></div>
     </div>
 
-    <!-- JAVASCRIPT LOGIKA -->
     <script>
-        // Ukládáme si poslední režim, abychom menu překreslovali jen při změně
         let lastMode = ""; 
+        let lastActionTime = 0;
 
-        // Hlavní smyčka - ptá se serveru každých 300ms
         function updateStatus() {
             fetch('/api/status')
                 .then(response => response.json())
                 .then(data => {
                     
-                    // 1. ZMĚNA REŽIMU? (Pokud se změnilo z 'home' na 'tv' nebo naopak)
+                    // 1. ZMĚNA REŽIMU
                     if (data.mode !== lastMode) {
-                        console.log("Přepínám menu na:", data.mode);
-                        renderMenu(data.current_menu); // Funkce pro vykreslení HTML
+                        renderMenu(data.current_menu);
                         lastMode = data.mode;
                         
-                        // Aktualizace nápisu režimu
                         const modeLabel = document.getElementById('mode-display');
+                        const tvContainer = document.getElementById('tv-brand-container');
+                        
                         if (data.mode === 'tv') {
                             modeLabel.innerText = "OVLÁDÁNÍ TELEVIZE";
-                            modeLabel.style.color = "#0dcaf0"; // Modrá pro TV
+                            modeLabel.style.color = "#0dcaf0"; 
+                            if(tvContainer) tvContainer.style.display = "block";
                         } else {
                             modeLabel.innerText = "BĚŽNÉ POŽADAVKY";
-                            modeLabel.style.color = "#888"; // Šedá pro Home
+                            modeLabel.style.color = "#888"; 
+                            if(tvContainer) tvContainer.style.display = "none";
                         }
                     }
 
-                    // 2. ZVÝRAZNĚNÍ VYBRANÉ KARTY
-                    // Projdeme všechny karty a tu se správným ID obarvíme
-                    const allCards = document.querySelectorAll('.card');
-                    allCards.forEach((card, index) => {
-                        if (index === data.selected_index) {
-                            card.classList.add('joystick-active');
-                            // Volitelné: Scrollovat k aktivní kartě, pokud je mimo obrazovku
-                            // card.scrollIntoView({behavior: "smooth", block: "center"}); 
+                    // 2. ZVÝRAZNĚNÍ KARTY
+                    document.querySelectorAll('.card').forEach((c, idx) => {
+                        if (idx === data.selected_index) {
+                            c.classList.add('joystick-active');
                         } else {
-                            card.classList.remove('joystick-active');
+                            c.classList.remove('joystick-active');
                         }
                     });
 
-                    // 3. AKTUALIZACE HLAVIČKY (Zpráva + Stav připojení)
+                    // 3. VIZUÁLNÍ EFEKT (Probliknutí) PŘI AKCI
+                    if (data.last_action && data.last_action > lastActionTime) {
+                        lastActionTime = data.last_action;
+                        const activeCard = document.querySelector('.joystick-active');
+                        if (activeCard) {
+                            // Trik pro restart CSS animace
+                            activeCard.classList.remove('flash-animation');
+                            void activeCard.offsetWidth; 
+                            activeCard.classList.add('flash-animation');
+                        }
+                    }
+
+                    // 4. HLAVIČKA
                     updateHeader(data);
                 })
-                .catch(err => console.error("Chyba komunikace:", err));
+                .catch(err => console.error("Chyba:", err));
         }
 
-        // Funkce, která vezme JSON data a vyrobí z nich HTML
+        // Generování HTML karet z JSON dat z Pythonu
         function renderMenu(menuItems) {
             const container = document.getElementById('menu-container');
-            container.innerHTML = ""; // Vymazat staré menu
+            container.innerHTML = ""; 
 
             menuItems.forEach((item, index) => {
-                // Vytvoření HTML pro jednu kartu
                 const html = `
                 <div class="col-6 col-md-4 col-lg-3">
                     <div class="card h-100 text-center p-4 text-white" onclick="manualClick(${index})">
@@ -189,26 +174,22 @@
             });
         }
 
-        // Funkce pro aktualizaci textů a barev v horní liště
         function updateHeader(data) {
             const msgBox = document.getElementById('status-message');
             const resetBtn = document.getElementById('reset-button');
-            
             msgBox.innerText = data.message;
             
-            // Pokud je tam aktivní požadavek (a není to jen info o režimu), ukaž tlačítko
-            // Poznámka: v Pythonu nastavujeme message="Režim: ..." při přepnutí
-            const isInfoMessage = data.message.startsWith("Režim:");
+            const isInfoMessage = data.message.startsWith("Režim:") || 
+                                  data.message.startsWith("TV:");
             
             if (data.message !== "Připraveno" && !isInfoMessage) {
-                msgBox.style.color = "#ffc107"; // Žlutá
+                msgBox.style.color = "#ffc107";
                 resetBtn.style.display = "block";
             } else {
                 msgBox.style.color = "white";
                 resetBtn.style.display = "none";
             }
 
-            // Indikátor připojení (vpravo nahoře)
             const badge = document.getElementById('connection-indicator');
             const icon = badge.querySelector('i');
             const text = badge.querySelector('span');
@@ -230,17 +211,12 @@
             }
         }
 
-        // Kliknutí myší (simuluje joystick)
-        function manualClick(index) {
-            fetch('/api/click/' + index, { method: 'POST' });
-        }
-        
-        // Tlačítko Vyřízeno
-        function resetMsg() {
-            fetch('/api/reset', { method: 'POST' });
-        }
+        // Pomocné funkce pro posílání kliknutí myší
+        function manualClick(id) { fetch('/api/click/' + id, { method: 'POST' }); }
+        function resetMsg() { fetch('/api/reset', { method: 'POST' }); }
+        function changeBrand(brand) { fetch('/api/set_brand/' + brand, { method: 'POST' }); }
 
-        // Spouštíme smyčku každých 300ms
+        // Volání smyčky
         setInterval(updateStatus, 300);
     </script>
 </body>
