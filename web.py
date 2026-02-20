@@ -1,6 +1,6 @@
 from flask import Flask, render_template, jsonify, request
 import paho.mqtt.client as mqtt
-import threading   # <--- TADY CHYBĚL TENTO ŘÁDEK
+import threading
 import time
 import subprocess
 
@@ -48,11 +48,23 @@ def on_message(client, userdata, msg):
     except Exception as e: print(e)
 
 def process_command(cmd):
-    # Jednoduchá logika bez časovačů
-    if cmd == "RIGHT": toggle_mode()
-    elif cmd == "DOWN": move_selection(1)
-    elif cmd == "UP" or cmd == "LEFT": move_selection(-1)
-    elif cmd == "SELECT": trigger_action()
+    # --- NOVÉ ROZLOŽENÍ OVLÁDÁNÍ ---
+    
+    # 1. NAHORU = Přepnutí režimu (TV/Home)
+    if cmd == "UP": 
+        toggle_mode()
+        
+    # 2. DOPRAVA = Posun v menu vpřed
+    elif cmd == "RIGHT": 
+        move_selection(1)
+        
+    # 3. DOLEVA = Posun v menu vzad
+    elif cmd == "LEFT": 
+        move_selection(-1)
+        
+    # 4. DOLŮ (nebo fyzický stisk) = POTVRZENÍ VÝBĚRU
+    elif cmd == "DOWN" or cmd == "SELECT": 
+        trigger_action()
 
 def move_selection(direction):
     menu_len = len(system_state["current_menu"])
@@ -107,7 +119,6 @@ def start_mqtt():
 # --- ROUTES ---
 @app.route('/')
 def index():
-    # Posíláme seznam značek do šablony
     return render_template('index.html', brands=AVAILABLE_BRANDS, current_brand=system_state["tv_brand"])
 
 @app.route('/api/status')
@@ -134,6 +145,5 @@ def set_brand(brand):
     return jsonify({"status": "ok"})
 
 if __name__ == '__main__':
-    # Tady nám to padalo, protože chyběl "import threading" nahoře
     threading.Thread(target=start_mqtt, daemon=True).start()
     app.run(host='0.0.0.0', port=5000, debug=False)
