@@ -11,10 +11,10 @@ MENU_HOME = [
     {"id": 0, "label": "MÁM ŽÍZEŇ", "icon": "fa-glass-water", "color": "primary", "type": "req"},
     {"id": 1, "label": "MÁM HLAD", "icon": "fa-utensils", "color": "warning", "type": "req"},
     {"id": 2, "label": "SVĚTLO", "icon": "fa-lightbulb", "color": "success", "type": "zigbee"},
-    {"id": 3, "label": "POMOC", "icon": "fa-hand-holding-medical", "color": "danger", "type": "req"}
+    {"id": 3, "label": "POMOC", "icon": "fa-hand-holding-medical", "color": "danger", "type": "req"},
+    {"id": 4, "label": "ZRUŠIT", "icon": "fa-rotate-left", "color": "secondary", "type": "cancel"}
 ]
 
-# MENU TELEVIZE (Kódy jsou názvy souborů bez přípony)
 MENU_TV = [
     {"id": 0, "label": "ZAP/VYP", "icon": "fa-power-off", "color": "danger", "type": "ir", "code": "power"},
     {"id": 1, "label": "PROGRAM +", "icon": "fa-arrow-up", "color": "info", "type": "ir", "code": "ch_up"},
@@ -23,7 +23,6 @@ MENU_TV = [
     {"id": 4, "label": "HLASITOST -", "icon": "fa-volume-low", "color": "secondary", "type": "ir", "code": "vol_down"}
 ]
 
-# Seznam podporovaných značek (musí odpovídat složkám v /home/lukas/rpi/ir_codes/)
 AVAILABLE_BRANDS = ["samsung", "lg", "sony", "philips", "panasonic"]
 
 # --- STAV SYSTÉMU ---
@@ -33,7 +32,8 @@ system_state = {
     "selected_index": 0,
     "message": "Připraveno",
     "connection": "SLEEP",
-    "tv_brand": "samsung"    # Výchozí značka
+    "tv_brand": "samsung",
+    "last_action": 0         # Čas poslední akce pro vizuální probliknutí v HTML
 }
 
 # --- MQTT LOGIKA ---
@@ -48,21 +48,19 @@ def on_message(client, userdata, msg):
     except Exception as e: print(e)
 
 def process_command(cmd):
-    # --- NOVÉ ROZLOŽENÍ OVLÁDÁNÍ ---
-    
     # 1. NAHORU = Přepnutí režimu (TV/Home)
     if cmd == "UP": 
         toggle_mode()
         
-    # 2. DOPRAVA = Posun v menu vpřed
+    # 2. DOPRAVA = Posun vpřed
     elif cmd == "RIGHT": 
         move_selection(1)
         
-    # 3. DOLEVA = Posun v menu vzad
+    # 3. DOLEVA = Posun vzad
     elif cmd == "LEFT": 
         move_selection(-1)
         
-    # 4. DOLŮ (nebo fyzický stisk) = POTVRZENÍ VÝBĚRU
+    # 4. DOLŮ = POTVRZENÍ
     elif cmd == "DOWN" or cmd == "SELECT": 
         trigger_action()
 
@@ -85,24 +83,30 @@ def trigger_action():
     idx = system_state["selected_index"]
     item = system_state["current_menu"][idx]
     
-    if item["type"] != "ir":
-        system_state["message"] = f"Vybráno: {item['label']}"
+    # Zaznamenáme čas akce pro animaci probliknutí v HTML
+    system_state["last_action"] = time.time()
     
-    # Zigbee
-    if item.get("type") == "zigbee":
-        try: mqtt_client.publish("zigbee2mqtt/zasuvka/set", '{"state": "TOGGLE"}')
-        except: pass
+    # --- REŽIM 1: BĚŽNÉ POŽADAVKY ---
+    if system_state["mode"] == "home":
+        if item.get("type") == "cancel":
+            system_state["message"] = "Připraveno"  # Pacient akci zrušil
+        else:
+            system_state["message"] = f"Vybráno: {item['label']}"
+            
+            # Pokud to bylo světlo (Zigbee), sepneme ho
+            if item.get("type") == "zigbee":
+                try: mqtt_client.publish("zigbee2mqtt/zasuvka/set", '{"state": "TOGGLE"}')
+                except: pass
 
-    # IR OVLÁDÁNÍ
-    if item.get("type") == "ir":
-        brand = system_state['tv_brand']
-        code_file = item['code']
-        path = f"/home/lukas/rpi/ir_codes/{brand}/{code_file}.txt"
-        print(f"IR Vysílání: {path}")
-        try:
-            subprocess.run(["ir-ctl", "-d", "/dev/lirc0", "--send", path])
-        except Exception as e:
-            print(f"Chyba IR: {e}")
+    # --- REŽIM 2: U TELEVIZE ---
+    elif system_state["mode"] == "tv":
+        if item.get("type") == "ir":
+            brand = system_state['tv_brand']
+            code_file = item['code']
+            path = f"/home/lukas/rpi/ir_codes/{brand}/{code_file}.txt"
+            print(f"IR Vysílání: {path}")
+            try: subprocess.run(["ir-ctl", "-d", "/dev/lirc0", "--send", path])
+            except Exception as e: print(f"Chyba IR: {e}")
 
 # --- START ---
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
