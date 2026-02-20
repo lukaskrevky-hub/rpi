@@ -23,7 +23,7 @@ MENU_TV = [
     {"id": 4, "label": "HLASITOST -", "icon": "fa-volume-low", "color": "secondary", "type": "ir", "code": "vol_down"}
 ]
 
-AVAILABLE_BRANDS = ["samsung", "lg", "sony", "philips", "panasonic"]
+AVAILABLE_BRANDS = ["tcl", "lg", "sony", "samsung", "panasonic"]
 
 # --- STAV SYSTÉMU ---
 system_state = {
@@ -32,7 +32,7 @@ system_state = {
     "selected_index": 0,
     "message": "Připraveno",
     "connection": "SLEEP",
-    "tv_brand": "samsung",
+    "tv_brand": "tcl",
     "last_action": 0         # Čas poslední akce pro vizuální probliknutí v HTML
 }
 
