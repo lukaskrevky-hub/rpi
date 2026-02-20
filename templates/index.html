@@ -4,36 +4,32 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Asistivní Hub</title>
-    <!-- Bootstrap CSS pro základní vzhled -->
+    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- FontAwesome pro ikony -->
+    <!-- FontAwesome Ikony -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <style>
-        /* Tmavý režim šetří oči a vypadá moderně */
         body { 
             background-color: #121212; 
             color: white; 
             font-family: 'Segoe UI', sans-serif; 
-            overflow-x: hidden; /* Zákaz horizontálního posuvníku */
         }
         
-        /* Styl karet (tlačítek) */
+        /* Styl karet */
         .card { 
-            transition: all 0.2s ease-in-out; 
+            transition: all 0.2s; 
             cursor: pointer; 
             border: 2px solid #333; 
-            background-color: #1e1e1e;
-            border-radius: 15px;
+            background-color: #1e1e1e; 
         }
         
-        /* Styl pro AKTIVNÍ KARTU (vybranou joystickem) */
+        /* Aktivní karta (vybraná joystickem) */
         .joystick-active { 
             border-color: #00ff00 !important; 
             transform: scale(1.05); 
-            box-shadow: 0 0 25px rgba(0, 255, 0, 0.4);
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
             background-color: #2a2a2a;
-            z-index: 10;
         }
         
         .icon-large { font-size: 3.5rem; margin-bottom: 15px; display: block; }
@@ -50,10 +46,16 @@
             position: sticky;
             top: 0;
             z-index: 1000;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
         
-        /* Indikátor stavu připojení (vpravo nahoře) */
+        /* Kontejner pro zprávu a tlačítko */
+        .msg-container { 
+            display: flex; 
+            align-items: center; 
+            gap: 15px;
+        }
+
+        /* Indikátor stavu (Badge) */
         .status-badge {
             font-size: 1rem; 
             padding: 6px 15px; 
@@ -63,184 +65,138 @@
             align-items: center; 
             gap: 8px; 
             text-transform: uppercase;
+            box-shadow: 0 0 10px rgba(0,0,0,0.3);
         }
-        .status-ready { background-color: #198754; color: white; }
-        .status-sleep { background-color: #212529; color: #6c757d; border: 1px solid #555; }
-        .status-conn { background-color: #ffc107; color: black; }
         
-        /* Tlačítko VYŘÍZENO */
+        /* Barvy stavů */
+        .status-ready { background-color: #198754; color: white; border: 1px solid #198754; }      /* Zelená */
+        .status-sleep { background-color: #212529; color: #6c757d; border: 1px solid #495057; }   /* Šedá */
+        .status-conn { background-color: #ffc107; color: black; border: 1px solid #ffc107; }       /* Žlutá */
+        
+        /* NOVÉ: Tlačítko Reset (Vyřízeno) */
         .reset-btn {
-            background-color: #dc3545; color: white; border: none;
-            padding: 5px 20px; border-radius: 8px; font-weight: bold;
-            display: none; cursor: pointer; margin-left: 20px;
-            animation: pulse 2s infinite;
+            background-color: #dc3545; /* Červená */
+            color: white; 
+            border: none;
+            padding: 5px 15px; 
+            border-radius: 5px; 
+            font-weight: bold;
+            display: none; /* Skryté, dokud není zpráva */
+            cursor: pointer;
+            animation: pulse 2s infinite; /* Jemné pulzování pro pozornost */
         }
-        @keyframes pulse { 
-            0% { transform: scale(1); } 
-            50% { transform: scale(1.05); } 
-            100% { transform: scale(1); } 
-        }
+        .reset-btn:hover { background-color: #bb2d3b; }
         
-        /* Nápis aktuálního režimu (nad hláškou) */
-        .mode-label {
-            font-size: 0.85rem; 
-            text-transform: uppercase; 
-            letter-spacing: 2px; 
-            color: #888; 
-            margin-bottom: 2px;
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
         }
     </style>
 </head>
 <body>
 
-    <!-- HORNÍ LIŠTA -->
+    <!-- Horní lišta -->
     <div class="top-bar">
-        <div>
-            <!-- Indikace režimu (např. OVLÁDÁNÍ TV) -->
-            <div id="mode-display" class="mode-label">NAČÍTÁM...</div>
+        <div class="msg-container">
+            <!-- Text zprávy -->
+            <div id="status-message" style="font-size: 1.3rem; font-weight: bold;">Připraveno</div>
             
-            <div style="display:flex; align-items:center;">
-                <!-- Hlavní zpráva (např. Mám žízeň) -->
-                <div id="status-message" style="font-size: 1.4rem; font-weight: bold;">Čekám na data...</div>
-                
-                <!-- Tlačítko pro personál -->
-                <button id="reset-button" class="reset-btn" onclick="resetMsg()">
-                    <i class="fa-solid fa-check"></i> VYŘÍZENO
-                </button>
-            </div>
+            <!-- TLAČÍTKO PRO RESET (Zobrazí se jen při aktivní hlášce) -->
+            <button id="reset-button" class="reset-btn" onclick="resetMsg()">
+                <i class="fa-solid fa-check"></i> VYŘÍZENO
+            </button>
         </div>
         
-        <!-- Indikátor ESP32 -->
+        <!-- INDIKÁTOR STAVU ESP32 -->
         <div id="connection-indicator" class="status-badge status-sleep">
             <i class="fa-solid fa-moon"></i> <span>SPÍ</span>
         </div>
     </div>
 
     <div class="container">
-        <!-- ZDE JAVASCRIPT VYTVÁŘÍ KARTY -->
-        <!-- Už tu nejsou natvrdo, ID 'menu-container' je důležité -->
-        <div id="menu-container" class="row g-4"></div>
+        <div class="row g-4">
+            {% for item in menu %}
+            <div class="col-6 col-md-3">
+                <!-- Karta položky -->
+                <div class="card h-100 text-center p-4 text-white" 
+                     id="card-{{ item.id }}" 
+                     onclick="manualClick({{ item.id }})">
+                    <div class="card-body">
+                        <i class="fa-solid {{ item.icon }} icon-large text-{{ item.color }}"></i>
+                        <h4 class="card-title">{{ item.label }}</h4>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
     </div>
 
-    <!-- JAVASCRIPT LOGIKA -->
+    <!-- JavaScript Logika -->
     <script>
-        // Ukládáme si poslední režim, abychom menu překreslovali jen při změně
-        let lastMode = ""; 
-
-        // Hlavní smyčka - ptá se serveru každých 300ms
         function updateStatus() {
+            // Dotazujeme se serveru každých 300ms
             fetch('/api/status')
                 .then(response => response.json())
                 .then(data => {
+                    // 1. Aktualizace MENU (zvýraznění vybrané karty)
+                    document.querySelectorAll('.card').forEach(c => c.classList.remove('joystick-active'));
+                    const activeCard = document.getElementById('card-' + data.selected_index);
+                    if (activeCard) activeCard.classList.add('joystick-active');
+
+                    // 2. Aktualizace HLÁŠKY a Tlačítka Reset
+                    const msgBox = document.getElementById('status-message');
+                    const resetBtn = document.getElementById('reset-button');
                     
-                    // 1. ZMĚNA REŽIMU? (Pokud se změnilo z 'home' na 'tv' nebo naopak)
-                    if (data.mode !== lastMode) {
-                        console.log("Přepínám menu na:", data.mode);
-                        renderMenu(data.current_menu); // Funkce pro vykreslení HTML
-                        lastMode = data.mode;
-                        
-                        // Aktualizace nápisu režimu
-                        const modeLabel = document.getElementById('mode-display');
-                        if (data.mode === 'tv') {
-                            modeLabel.innerText = "OVLÁDÁNÍ TELEVIZE";
-                            modeLabel.style.color = "#0dcaf0"; // Modrá pro TV
-                        } else {
-                            modeLabel.innerText = "BĚŽNÉ POŽADAVKY";
-                            modeLabel.style.color = "#888"; // Šedá pro Home
-                        }
+                    msgBox.innerText = data.message;
+                    
+                    // LOGIKA: Pokud je zpráva jiná než "Připraveno", ukážeme tlačítko a změníme barvu
+                    if (data.message !== "Připraveno") {
+                        msgBox.style.color = "#ffc107"; // Žlutá pro zvýraznění
+                        resetBtn.style.display = "block"; // Zobrazit tlačítko
+                    } else {
+                        msgBox.style.color = "white"; // Bílá (normální)
+                        resetBtn.style.display = "none"; // Skrýt tlačítko
                     }
 
-                    // 2. ZVÝRAZNĚNÍ VYBRANÉ KARTY
-                    // Projdeme všechny karty a tu se správným ID obarvíme
-                    const allCards = document.querySelectorAll('.card');
-                    allCards.forEach((card, index) => {
-                        if (index === data.selected_index) {
-                            card.classList.add('joystick-active');
-                            // Volitelné: Scrollovat k aktivní kartě, pokud je mimo obrazovku
-                            // card.scrollIntoView({behavior: "smooth", block: "center"}); 
-                        } else {
-                            card.classList.remove('joystick-active');
-                        }
-                    });
+                    // 3. Aktualizace STAVU OVLADAČE (Vpravo nahoře)
+                    const badge = document.getElementById('connection-indicator');
+                    const icon = badge.querySelector('i');
+                    const text = badge.querySelector('span');
+                    
+                    // Odstraníme staré třídy barev
+                    badge.classList.remove('status-ready', 'status-sleep', 'status-conn');
 
-                    // 3. AKTUALIZACE HLAVIČKY (Zpráva + Stav připojení)
-                    updateHeader(data);
+                    if (data.connection === 'READY') {
+                        badge.classList.add('status-ready');
+                        icon.className = 'fa-solid fa-gamepad';
+                        text.innerText = "AKTIVNÍ";
+                    } 
+                    else if (data.connection === 'CONNECTING') {
+                        badge.classList.add('status-conn');
+                        icon.className = 'fa-solid fa-spinner fa-spin';
+                        text.innerText = "PŘIPOJOVÁNÍ...";
+                    } 
+                    else {
+                        badge.classList.add('status-sleep');
+                        icon.className = 'fa-solid fa-moon';
+                        text.innerText = "SPÍ";
+                    }
                 })
                 .catch(err => console.error("Chyba komunikace:", err));
         }
 
-        // Funkce, která vezme JSON data a vyrobí z nich HTML
-        function renderMenu(menuItems) {
-            const container = document.getElementById('menu-container');
-            container.innerHTML = ""; // Vymazat staré menu
-
-            menuItems.forEach((item, index) => {
-                // Vytvoření HTML pro jednu kartu
-                const html = `
-                <div class="col-6 col-md-4 col-lg-3">
-                    <div class="card h-100 text-center p-4 text-white" onclick="manualClick(${index})">
-                        <div class="card-body">
-                            <i class="fa-solid ${item.icon} icon-large text-${item.color}"></i>
-                            <h4 class="card-title mt-3">${item.label}</h4>
-                        </div>
-                    </div>
-                </div>`;
-                container.innerHTML += html;
-            });
-        }
-
-        // Funkce pro aktualizaci textů a barev v horní liště
-        function updateHeader(data) {
-            const msgBox = document.getElementById('status-message');
-            const resetBtn = document.getElementById('reset-button');
-            
-            msgBox.innerText = data.message;
-            
-            // Pokud je tam aktivní požadavek (a není to jen info o režimu), ukaž tlačítko
-            // Poznámka: v Pythonu nastavujeme message="Režim: ..." při přepnutí
-            const isInfoMessage = data.message.startsWith("Režim:");
-            
-            if (data.message !== "Připraveno" && !isInfoMessage) {
-                msgBox.style.color = "#ffc107"; // Žlutá
-                resetBtn.style.display = "block";
-            } else {
-                msgBox.style.color = "white";
-                resetBtn.style.display = "none";
-            }
-
-            // Indikátor připojení (vpravo nahoře)
-            const badge = document.getElementById('connection-indicator');
-            const icon = badge.querySelector('i');
-            const text = badge.querySelector('span');
-            
-            badge.classList.remove('status-ready', 'status-sleep', 'status-conn');
-
-            if (data.connection === 'READY') {
-                badge.classList.add('status-ready');
-                icon.className = 'fa-solid fa-gamepad';
-                text.innerText = "AKTIVNÍ";
-            } else if (data.connection === 'CONNECTING') {
-                badge.classList.add('status-conn');
-                icon.className = 'fa-solid fa-spinner fa-spin';
-                text.innerText = "PŘIPOJOVÁNÍ";
-            } else {
-                badge.classList.add('status-sleep');
-                icon.className = 'fa-solid fa-moon';
-                text.innerText = "SPÍ";
-            }
-        }
-
-        // Kliknutí myší (simuluje joystick)
-        function manualClick(index) {
-            fetch('/api/click/' + index, { method: 'POST' });
+        // Funkce pro kliknutí myší (pro testování nebo pečovatele)
+        function manualClick(id) {
+            fetch('/api/click/' + id, { method: 'POST' });
         }
         
-        // Tlačítko Vyřízeno
+        // NOVÉ: Funkce pro resetování zprávy (Tlačítko Vyřízeno)
         function resetMsg() {
             fetch('/api/reset', { method: 'POST' });
         }
 
-        // Spouštíme smyčku každých 300ms
+        // Spuštění smyčky
         setInterval(updateStatus, 300);
     </script>
 </body>
