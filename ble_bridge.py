@@ -5,7 +5,7 @@ import sys
 
 # ==========================================
 # VAŠE ZJIŠTĚNÁ MAC ADRESA
-TARGET_MAC = "38:18:2B:B3:80:8E"
+TARGET_MAC = "10:06:1C:B5:A7:36"
 # ==========================================
 
 UART_TX_CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
@@ -84,3 +84,4 @@ if __name__ == "__main__":
         print("\nUkončuji program...")
         publish_status("SLEEP")
         sys.exit(0)
+
