@@ -90,13 +90,16 @@ def trigger_action():
     if system_state["mode"] == "home":
         if item.get("type") == "cancel":
             system_state["message"] = "Připraveno"  # Pacient akci zrušil
-        else:
-            system_state["message"] = f"Vybráno: {item['label']}"
             
-            # Pokud to bylo světlo (Zigbee), sepneme ho
-            if item.get("type") == "zigbee":
-                try: mqtt_client.publish("zigbee2mqtt/zasuvka/set", '{"state": "TOGGLE"}')
-                except: pass
+        elif item.get("type") == "zigbee":
+            # Pokud to bylo světlo (Zigbee), pouze ho sepneme, 
+            # ale zprávu v horní liště NEMĚNÍME (necháme ji tak, jak je).
+            try: mqtt_client.publish("zigbee2mqtt/zasuvka/set", '{"state": "TOGGLE"}')
+            except: pass
+            
+        else:
+            # Všechny ostatní požadavky (MÁM ŽÍZEŇ, HLAD, POMOC) vypíšeme
+            system_state["message"] = f"Vybráno: {item['label']}"
 
     # --- REŽIM 2: U TELEVIZE ---
     elif system_state["mode"] == "tv":
