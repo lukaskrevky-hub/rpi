@@ -2,6 +2,7 @@ import asyncio
 from bleak import BleakClient, BleakScanner
 import paho.mqtt.client as mqtt
 import sys
+import subprocess  # Přidáno pro tvrdý reset Bluetooth mezipaměti
 
 MQTT_BROKER = "localhost"
 MQTT_TOPIC = "joystick/command"
@@ -25,19 +26,15 @@ def notification_handler(sender, data):
     client.publish(MQTT_TOPIC, cmd)
 
 async def connect_and_listen():
-    print("Hledám ESP32 (ignoruji starou paměť, čekám na čerstvý signál)...")
+    print("\nHledám ESP32 (Pohněte páčkou pro probuzení)...")
     
-    # TRIK 1: Použijeme filtr. To donutí Linux ignorovat starou paměť
-    # a musí fyzicky uslyšet nový inzertní paket z ESP32.
-    device = await BleakScanner.find_device_by_filter(
-        lambda d, ad: d.address.lower() == TARGET_MAC.lower(),
-        timeout=5.0
-    )
+    # Použijeme standardní, spolehlivé hledání.
+    device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=5.0)
 
     if not device:
         return # Nic jsme neslyšeli, smyčka v main() se zopakuje
 
-    print(f">>> ZACHYCEN ČERSTVÝ SIGNÁL! (RSSI: {device.rssi} dBm) <<<")
+    print(f">>> ESP32 NALEZENO! (Síla signálu: {device.rssi} dBm) <<<")
     client.publish(TOPIC_STATUS, "CONNECTING", retain=True)
 
     disconnect_event = asyncio.Event()
@@ -48,9 +45,9 @@ async def connect_and_listen():
         disconnect_event.set()
 
     try:
-        # TRIK 2: Předáme BleakClientovi přímo textovou adresu, ne objekt 'device'. 
-        # Na Raspberry Pi to obchází velmi nepříjemný bug v BlueZ modulu.
-        async with BleakClient(TARGET_MAC, disconnected_callback=handle_disconnect, timeout=10.0) as ble_client:
+        # KLÍČOVÁ OPRAVA: Předáváme BleakClientovi objekt 'device', nikoliv string 'TARGET_MAC'.
+        # To zaručí, že Linux naváže komunikaci s aktuální fyzickou vrstvou a nevyužije paměť.
+        async with BleakClient(device, disconnected_callback=handle_disconnect, timeout=10.0) as ble_client:
             print("+++ BLESKOVĚ PŘIPOJENO! Systém je AKTIVNÍ +++")
             client.publish(TOPIC_STATUS, "READY", retain=True)
             
@@ -62,10 +59,16 @@ async def connect_and_listen():
     except Exception as e:
         print(f"Chyba při pokusu o spojení: {e}")
         client.publish(TOPIC_STATUS, "SLEEP", retain=True)
+        
+        # EXTRÉMNÍ HACK: Pokud to spadne, vynutíme vyčištění BlueZ cache pomocí terminálu.
+        # Odstraní to zaseknutá zařízení v Linuxu.
+        print("Spouštím tvrdý úklid Bluetooth paměti...")
+        subprocess.run(["bluetoothctl", "remove", TARGET_MAC], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
         await asyncio.sleep(1)
 
 async def main():
-    print(f"Startuji FINÁLNÍ a NEJSTABILNĚJŠÍ verzi pro MAC: {TARGET_MAC}")
+    print(f"Startuji NEJSTABILNĚJŠÍ verzi s čištěním cache pro MAC: {TARGET_MAC}")
     client.publish(TOPIC_STATUS, "SLEEP", retain=True)
 
     while True:
