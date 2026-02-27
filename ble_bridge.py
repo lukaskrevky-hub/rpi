@@ -54,27 +54,25 @@ async def connect_and_listen():
         try:
             print(f"Čekám na probuzení joysticku ({TARGET_MAC})...")
             
-            # timeout=15.0: RPi bude 15 sekund čekat na této adrese.
-            async with BleakClient(TARGET_MAC, disconnected_callback=disconnected_callback, timeout=15.0) as client:
+            # Zvýšený timeout na 30 sekund
+            async with BleakClient(TARGET_MAC, disconnected_callback=disconnected_callback, timeout=30.0) as client:
                 
-                # Pokud jsme se dostali sem, handshaking začal
                 publish_status("CONNECTING") 
                 print("Navazuji spojení...")
                 
-                # Zapneme notifikace
                 await client.start_notify(UART_TX_CHAR_UUID, notification_handler)
                 
                 print("PŘIPOJENO! Ovladač je aktivní.")
                 publish_status("READY") 
                 
-                # Smyčka udržující spojení
                 while client.is_connected:
                     await asyncio.sleep(0.5)
             
-            # Zde se kód dostane po odpojení
-            
+        except asyncio.TimeoutError:
+            print("Timeout při připojování (joystick pravděpodobně spí)")
+            await asyncio.sleep(0.1)
         except Exception as e:
-            # Pokud se připojení nepovede (joystick spí), je to OK.
+            print(f"Chyba připojení: {e}")
             await asyncio.sleep(0.1)
 
 if __name__ == "__main__":
