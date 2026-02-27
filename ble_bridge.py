@@ -37,56 +37,70 @@ def notification_handler(sender, data):
     client.publish(MQTT_TOPIC, command)
 
 async def connect_and_listen():
-    print(f"--- SPUŠTĚN KLIDNÝ REŽIM (BUY & HOLD) NA {TARGET_MAC} ---")
+    print(f"--- SPUŠTĚN KOMUNITNÍ ROBUSTNÍ REŽIM NA {TARGET_MAC} ---")
     publish_status("SLEEP")
+    
+    # Exponenciální backoff pro uklidnění BlueZ
+    backoff = 1.0 
     
     while True:
         try:
-            # 1. Hledáme ovladač (tichý sken)
+            # 1. Hledáme zařízení pomocí standardního skeneru
             device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=3.0)
             
             if not device:
-                # Ovladač spí, tiše čekáme dál
+                # Ovladač spí
+                publish_status("SLEEP")
                 await asyncio.sleep(0.5)
                 continue
                 
             publish_status("CONNECTING")
             
-            # 2. ZLATÁ PAUZA: Než zavelíme k připojení, necháme Linux vteřinu vydechnout
-            await asyncio.sleep(1.0)
+            # ZLATÉ PRAVIDLO KOMUNITY: Zastavení skeneru není okamžité. 
+            # BlueZ potřebuje přesně 2 vteřiny na uvolnění D-Bus sběrnice.
+            await asyncio.sleep(2.0)
             
-            # 3. Samotné připojení
-            async with BleakClient(device, timeout=10.0) as client_ble:
+            # 2. Samotné připojení
+            async with BleakClient(device, timeout=15.0) as client_ble:
                 publish_status("READY") 
                 print("\n+++ PŘIPOJENO! Ovladač je aktivní. +++")
+                backoff = 1.0 # Reset backoffu po úspěšném připojení
                 
                 await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
                 
-                # Udržujeme spojení, dokud ESP32 po 30s nečinnosti samo neusne
+                # Sledujeme spojení
                 while client_ble.is_connected:
                     await asyncio.sleep(0.5)
             
-            # Jakmile se ESP32 korektně odpojí
-            print("--- Ovladač usnul ---")
+            # Korektní odpojení
+            print("--- Ovladač se odpojil ---")
             publish_status("SLEEP")
             await asyncio.sleep(1.0)
             
         except Exception as e:
             error_msg = str(e)
             
-            # Absorpce šumu. Pokud je to In Progress, Linux prostě zrovna pracuje.
-            # ŽÁDNÉ ZRUŠENÍ, ŽÁDNÝ RESTART. Prostě počkáme 2 vteřiny.
+            if "was not found" in error_msg:
+                await asyncio.sleep(1.0)
+                continue
+                
+            print(f"   [BlueZ Chyba] {error_msg}")
+            
+            # ŘEŠENÍ PODLE INTERNETU (Home Assistant komunita):
             if "In Progress" in error_msg:
+                # Modul se zablokoval. Exponenciálně prodlužujeme čekání, 
+                # abychom mu dali šanci se vzpamatovat bez vynuceného restartu.
+                print(f"   -> Čekám {backoff} vteřin na uvolnění modulu...")
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 8.0) # Max 8 vteřin
+                
+            elif "br-connection-canceled" in error_msg or "abort-by-local" in error_msg:
+                # HW interference (Wi-Fi vs Bluetooth). Krátká pauza na obnovu.
+                print("   -> Spojení zrušeno hardwarem. Zkouším znovu...")
                 await asyncio.sleep(2.0)
-            elif "br-connection-canceled" in error_msg:
-                # Spojení spadlo, zkusíme ho v další smyčce znovu načíst
-                await asyncio.sleep(1.0)
-            elif "was not found" not in error_msg:
-                # Ostatní drobné chyby tiše vypíšeme, ale nepanikaříme
-                print(f"   [Šum na trhu] {error_msg}")
-                await asyncio.sleep(1.0)
+                
             else:
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(2.0)
 
 if __name__ == "__main__":
     try:
