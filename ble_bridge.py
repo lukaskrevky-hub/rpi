@@ -1,7 +1,8 @@
 import asyncio
-from bleak import BleakClient, BleakScanner
+from bleak import BleakClient
 import paho.mqtt.client as mqtt
 import sys
+import subprocess
 
 # ==========================================
 # CÍLOVÁ MAC ADRESA
@@ -36,81 +37,56 @@ def notification_handler(sender, data):
     command = data.decode('utf-8').strip()
     client.publish(MQTT_TOPIC, command)
 
-async def hard_reset_bluetooth():
-    """Nekompromisní restart celého adaptéru - vypne a zapne napájení."""
-    print(">>> PROVÁDÍM TVRDÝ RESTART BLUETOOTH ADAPTÉRU <<<")
-    try:
-        # Vypnutí Bluetooth
-        proc_off = await asyncio.create_subprocess_exec(
-            'bluetoothctl', 'power', 'off',
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL
-        )
-        await proc_off.wait()
-        await asyncio.sleep(1.0) # Dáme modulu 1 vteřinu na úplné vybití
-        
-        # Zapnutí Bluetooth
-        proc_on = await asyncio.create_subprocess_exec(
-            'bluetoothctl', 'power', 'on',
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL
-        )
-        await proc_on.wait()
-        await asyncio.sleep(2.0) # Dáme modulu 2 vteřiny na kompletní nastartování
-        print(">>> ADAPTÉR JE ČISTÝ A PŘIPRAVENÝ <<<")
-    except Exception as e:
-        print(f"Chyba při restartu: {e}")
-
 async def connect_and_listen():
-    print(f"--- SPUŠTĚN REŽIM S TVRDÝM RESTARTEM NA {TARGET_MAC} ---")
+    print(f"--- SPUŠTĚN CHYTRÝ REŽIM NA {TARGET_MAC} ---")
     publish_status("SLEEP")
     
-    # 1. Čistý stůl hned po startu
-    await hard_reset_bluetooth()
+    # Čistý stůl po předchozích experimentech
+    subprocess.run(['bluetoothctl', 'disconnect', TARGET_MAC], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
     while True:
         try:
-            # Čekáme, až se ovladač objeví ve vzduchu
-            device = None
-            while not device:
-                device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=3.0)
-            
-            publish_status("CONNECTING")
-            print(">>> Ovladač nalezen. Navazuji spojení...")
-            
-            # Drobná pauza už stačí, adaptér je dokonale čistý
-            await asyncio.sleep(0.5)
-            
-            # Připojení k nalezenému objektu
-            async with BleakClient(device, timeout=10.0) as client_ble:
+            # BleakClient si pod kapotou sám skenuje a čeká.
+            # Timeout 10 vteřin dává Linuxu dostatek času transakci dokončit.
+            async with BleakClient(TARGET_MAC, timeout=10.0) as client_ble:
                 publish_status("READY") 
                 print("\n+++ PŘIPOJENO! Ovladač je aktivní. +++")
                 
                 await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
                 
-                # Držíme spojení, dokud pacient neustane v činnosti
+                # Držíme spojení
                 while client_ble.is_connected:
                     await asyncio.sleep(0.5)
             
-            # Jakmile se ESP32 uspí...
+            # Ovladač usnul a korektně se odpojil
             print("--- Ovladač usnul ---")
             publish_status("SLEEP")
-            
-            # 2. OKAMŽITÝ TVRDÝ RESTART!
-            # Uživatel teď ovladač nepotřebuje, takže máme čas (3 vteřiny) 
-            # na pozadí Linux vyčistit, aby byl připraven na další použití.
-            await hard_reset_bluetooth()
+            await asyncio.sleep(1.0)
             
         except Exception as e:
             error_msg = str(e)
             
-            if "was not found" not in error_msg:
-                print(f"   [Chyba spojení] {error_msg}")
+            # 1. BĚŽNÝ SPÁNEK: Ovladač prostě spí, BleakClient ho nenajde.
+            if "was not found" in error_msg or "Device with address" in error_msg:
+                publish_status("SLEEP")
+                await asyncio.sleep(0.5)
+                continue
                 
+            # 2. ZMĚNA STRATEGIE: "In Progress" znamená "Právě se připojuji!"
+            # Nezabíjíme to! Dáme systému chvíli na dokončení operace na pozadí.
+            if "In Progress" in error_msg:
+                publish_status("CONNECTING")
+                await asyncio.sleep(1.5)
+                continue
+                
+            # 3. OPRAVDOVÁ CHYBA: Spojení bylo Linuxem opravdu zrušeno.
             publish_status("SLEEP")
-            
-            # 3. Tvrdý restart při jakékoliv chybě
-            await hard_reset_bluetooth()
+            if "br-connection-canceled" in error_msg or "discover services" in error_msg:
+                print("   [Uklízím zrušené spojení...]")
+                subprocess.run(['bluetoothctl', 'disconnect', TARGET_MAC], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                await asyncio.sleep(1.0)
+            else:
+                await asyncio.sleep(1.0)
 
 if __name__ == "__main__":
     try:
