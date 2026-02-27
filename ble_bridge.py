@@ -8,8 +8,7 @@ import subprocess
 # ==========================================
 # NASTAVENÍ
 DEVICE_NAME = "ESP-JOY"
-# Pokud znáte MAC, můžete ji zadat pro urychlení (odkomentujte a vyplňte)
-# DEVICE_ADDRESS = "10:06:1C:B5:A7:36"
+DEVICE_ADDRESS = "10:06:1C:B5:A7:36"
 UART_TX_CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 MQTT_BROKER = "localhost"
 MQTT_TOPIC = "joystick/command"
@@ -146,3 +145,4 @@ if __name__ == "__main__":
         print("\nUkončuji program...")
         publish_status("SLEEP")
         sys.exit(0)
+
