@@ -1,5 +1,5 @@
 import asyncio
-from bleak import BleakClient
+from bleak import BleakClient, BleakScanner
 import paho.mqtt.client as mqtt
 import sys
 import subprocess
@@ -24,7 +24,6 @@ except Exception as e:
     print(f"Chyba MQTT: {e}")
     sys.exit(1)
 
-# Globální paměť pro zamezení duplicitních výpisů
 current_status = ""
 
 def publish_status(status):
@@ -40,47 +39,55 @@ def notification_handler(sender, data):
     client.publish(MQTT_TOPIC, command)
 
 def disconnected_callback(client_ble):
-    publish_status("SLEEP")
+    # Callback úmyslně prázdný. Odpojení řešíme metodicky v hlavní smyčce, 
+    # abychom zamezili Linuxovému spamu, kdy volá odpojení 10x po sobě.
+    pass
 
 async def connect_and_listen():
-    print(f"--- SPUŠTĚN NATIVNÍ REŽIM PŘIPOJOVÁNÍ NA {TARGET_MAC} ---")
+    print(f"--- SPUŠTĚN INVESTIČNÍ REŽIM PŘIPOJOVÁNÍ NA {TARGET_MAC} ---")
     publish_status("SLEEP")
     
     while True:
         try:
-            # NATIVNÍ PŘIPOJENÍ BEZ SKENERU
-            # Zcela jsme zahodili BleakScanner. Necháme BleakClienta, aby si sám
-            # interně a bezpečně vyřešil hledání i připojení v jednom kroku.
-            async with BleakClient(TARGET_MAC, disconnected_callback=disconnected_callback, timeout=5.0) as client_ble:
+            # 1. PASIVNÍ VYČKÁVÁNÍ
+            # Tiše a bez zátěže systému skenujeme vzduch.
+            device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=1.5)
+            
+            if device:
+                publish_status("CONNECTING")
                 
-                publish_status("READY") 
-                print("+++ PŘIPOJENO! Ovladač je aktivní. +++")
+                # 2. METODICKÝ VSTUP DO POZICE (Až 3 klidné pokusy)
+                # Zcela ignorujeme krátkodobý šum a paniku modulu BlueZ.
+                for attempt in range(1, 4):
+                    try:
+                        async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=5.0) as client_ble:
+                            publish_status("READY") 
+                            print("+++ PŘIPOJENO! Ovladač je aktivní. +++")
+                            
+                            await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
+                            
+                            # Držíme pozici, dokud pacient nevypne ovladač (neusne)
+                            while client_ble.is_connected:
+                                await asyncio.sleep(0.5)
+                            
+                            print("Spojení korektně ukončeno (ovladač usnul).")
+                            break # Úspěšně dokončeno, vyskakujeme z retry smyčky
+                            
+                    except Exception as e:
+                        # Tichá absorpce šumu (nebudeme uživateli vypisovat každou hloupost z Linuxu)
+                        if attempt == 3:
+                            # Teprve pokud selžou 3 pokusy po sobě, provedeme úklid
+                            print("Modul je zaneprázdněn, čistím paměť...")
+                            subprocess.run(['bluetoothctl', 'disconnect', TARGET_MAC], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        await asyncio.sleep(0.5)
                 
-                await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
-                
-                while client_ble.is_connected:
-                    await asyncio.sleep(0.5)
-            
-            # Po korektním odpojení (uspání ESP32)
-            print("Spojení korektně ukončeno.")
-            publish_status("SLEEP")
-            await asyncio.sleep(0.5)
-            
-        except Exception as e:
-            error_msg = str(e)
-            
-            # Tiše ignorujeme stav, kdy ESP32 spí a BleakClient ho po 5s hledání nenajde
-            if "Device with address" not in error_msg and "was not found" not in error_msg:
-                print(f"Drobná chyba spojení: {error_msg}")
-            
-            publish_status("SLEEP")
-            
-            # Záchranná brzda pouze pro případ fatálního záseku Linuxu
-            if "In Progress" in error_msg or "br-connection-canceled" in error_msg:
-                subprocess.run(['bluetoothctl', 'disconnect', TARGET_MAC], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                # Po korektním odpojení nebo vyčerpání pokusů jdeme zpět do spánku
+                publish_status("SLEEP")
                 await asyncio.sleep(1.0)
-            else:
-                await asyncio.sleep(0.2)
+                
+        except Exception as e:
+            # Ochrana proti pádu samotného skeneru
+            await asyncio.sleep(1.0)
 
 if __name__ == "__main__":
     try:
