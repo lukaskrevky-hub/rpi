@@ -5,7 +5,7 @@ import sys
 import subprocess
 
 # ==========================================
-# CÍLOVÁ MAC ADRESA (Potvrzená)
+# CÍLOVÁ MAC ADRESA (Potvrzená Bluetooth adresa ESP32)
 TARGET_MAC = "10:06:1C:B5:A7:36"
 # ==========================================
 
@@ -38,62 +38,62 @@ def disconnected_callback(client):
     publish_status("SLEEP")
 
 async def connect_and_listen():
-    print(f"--- SPUŠTĚN STABILNÍ REŽIM PŘIPOJOVÁNÍ NA {TARGET_MAC} ---")
+    print(f"--- SPUŠTĚN REŽIM PŘIPOJOVÁNÍ NA {TARGET_MAC} ---")
     publish_status("SLEEP")
     
     consecutive_errors = 0
     
     while True:
         try:
-            # 1. Rychlý skener (2 vteřiny)
+            # 1. Hledáme ovladač ve vzduchu (obcházíme paměťovou cache Linuxu)
             device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=3.0)
             
             if device:
                 print(">>> Ovladač nalezen ve vzduchu! <<<")
                 
-                # ZLATÝ KOMPROMIS PRO RASPBERRY PI: 1.5s pauza. 
-                # BlueZ na malině je línější, půl vteřiny mu nestačilo a zahazoval spojení.
-                await asyncio.sleep(1.5) 
+                # ZLATÉ PRAVIDLO: Po skenování potřebuje BlueZ modul vteřinu na oddech,
+                # jinak spojení okamžitě spadne na 'br-connection-canceled'.
+                await asyncio.sleep(1.0) 
                 
                 publish_status("CONNECTING")
                 
-                # 2. Připojení
+                # 2. Klasické obousměrné spojení (požadavek vedoucího)
+                # Timeout nastaven na 10 sekund pro dostatek času na načtení služeb
                 async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=10.0) as client_ble:
                     print("+++ PŘIPOJENO! Ovladač je aktivní. +++")
                     publish_status("READY") 
-                    consecutive_errors = 0 # Vynulujeme počítadlo chyb
+                    consecutive_errors = 0 # Úspěšné spojení = nulujeme chyby
                     
+                    # Registrace příjmu dat
                     await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
                     
-                    # Držíme spojení aktivní
+                    # Držíme spojení aktivní (dokud se ovladač sám neuspí)
                     while client_ble.is_connected:
                         await asyncio.sleep(0.5)
                 
-                # 3. Odpojení
-                print("Spojení korektně ukončeno. Čekám 1s na uvolnění portů...")
+                # Pokud se dostaneme sem, spojení bylo korektně ukončeno (ESP32 usnulo)
+                print("Spojení korektně ukončeno. Čekám na uvolnění portů...")
                 await asyncio.sleep(1.0)
                 
             else:
-                # Ovladač spí
-                await asyncio.sleep(0.2)
+                # Ovladač zrovna spí, nebudeme spamovat konzoli
+                await asyncio.sleep(0.5)
                 
         except Exception as e:
             error_msg = str(e)
             print(f"Výpadek spojení: {error_msg}")
             
-            # KDYKOLIV se BlueZ zasekne, okamžitě mu odstřelíme zombie spojení
-            if "In Progress" in error_msg or "br-connection-canceled" in error_msg or "NotPermitted" in error_msg:
+            # Pokud se BlueZ zasekne na "In Progress" (typický neduh RPi), 
+            # odstřelíme konkrétní zaseknuté spojení z mezipaměti.
+            if "In Progress" in error_msg or "br-connection-canceled" in error_msg:
                 print("Uklízím zablokovanou paměť Bluetooth modulu...")
                 subprocess.run(['bluetoothctl', 'disconnect', TARGET_MAC], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(2.0)
                 consecutive_errors += 1
-            elif "discover services" in error_msg:
-                print("Nepodařilo se načíst služby (ESP32 pravděpodobně usnulo).")
-                await asyncio.sleep(1.0)
             else:
                 await asyncio.sleep(1.0)
             
-            # OPRAVDOVÝ TVRDÝ RESTART ADAPTÉRU (Při velkém zacyklení)
+            # Pokud se systém zacyklí úplně, provedeme "tvrdý" restart rádiového adaptéru
             if consecutive_errors >= 4:
                 print("!!! BlueZ modul je tvrdě zacyklený. Provádím restart napájení Bluetooth...")
                 try:
@@ -104,7 +104,7 @@ async def connect_and_listen():
                 except Exception as ex:
                     print(f"Nepodařilo se restartovat Bluetooth: {ex}")
                 
-                consecutive_errors = 0 # Vynulujeme počítadlo po restartu
+                consecutive_errors = 0
 
 if __name__ == "__main__":
     try:
