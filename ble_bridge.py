@@ -1,10 +1,10 @@
 import asyncio
-from bleak import BleakClient, BleakError
+from bleak import BleakClient, BleakScanner, BleakError
 import paho.mqtt.client as mqtt
 import sys
 
 # ==========================================
-# OPRAVA: SPRÁVNÁ MAC ADRESA
+# OPRAVA: SPRÁVNÁ MAC ADRESA (končí 34)
 TARGET_MAC = "10:06:1C:B5:A7:34"
 # ==========================================
 
@@ -47,31 +47,43 @@ def disconnected_callback(client):
 # --- HLAVNÍ SMYČKA PRO PŘIPOJENÍ ---
 
 async def connect_and_listen():
-    print(f"--- SPUŠTĚN DIRECT CONNECT NA {TARGET_MAC} ---")
+    print(f"--- SPUŠTĚN SKENER A CONNECT NA {TARGET_MAC} ---")
     publish_status("SLEEP")
     
     while True:
         try:
-            print(f"Čekám na probuzení joysticku ({TARGET_MAC})...")
+            print(f"Hledám signál z joysticku ({TARGET_MAC})...")
             
-            # OPRAVA TIMEOUTU: 5 vteřin je ideální balanc. Malina se nezamrazí 
-            # na 15 vteřin, když ESP spí, ale reaguje svižně.
-            async with BleakClient(TARGET_MAC, disconnected_callback=disconnected_callback, timeout=5.0) as client:
+            # KOMUNITNÍ ŘEŠENÍ (Best Practice): 
+            # Nejdříve fyzicky najdeme zařízení ve vzduchu pomocí skeneru.
+            # Tím obejdeme zaseknutou BlueZ mezipaměť (cache) v Linuxu.
+            device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=5.0)
+            
+            if not device:
+                # Zařízení spí, skener nic neslyšel, jedeme znovu
+                continue
                 
-                publish_status("CONNECTING") 
-                print("Navazuji spojení...")
+            print(f"Signál zachycen (RSSI: {device.rssi} dBm)! Navazuji spojení...")
+            publish_status("CONNECTING") 
+            
+            # Předáváme zjištěný fyzický OBJEKT (device), nikoliv jen textovou MAC adresu
+            async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=5.0) as client_ble:
                 
-                await client.start_notify(UART_TX_CHAR_UUID, notification_handler)
+                # Zapneme notifikace
+                await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
                 
                 print("PŘIPOJENO! Ovladač je aktivní.")
                 publish_status("READY") 
                 
                 # Udržujeme spojení
-                while client.is_connected:
+                while client_ble.is_connected:
                     await asyncio.sleep(0.5)
             
+            # Zde se kód dostane po odpojení
+            
         except Exception as e:
-            # Rychlý spánek a nový pokus, pokud ESP zrovna nebylo dostupné
+            # Rychlý spánek a nový pokus, pokud ESP zrovna nebylo dostupné nebo signál zarušila Wi-Fi
+            print(f"Chyba při spojení: {e}")
             await asyncio.sleep(0.5)
 
 if __name__ == "__main__":
