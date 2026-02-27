@@ -46,14 +46,14 @@ async def connect_and_listen():
     while True:
         try:
             # 1. Rychlý skener (2 vteřiny)
-            device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=2.0)
+            device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=3.0)
             
             if device:
                 print(">>> Ovladač nalezen ve vzduchu! <<<")
                 
-                # ZLATÝ KOMPROMIS: 0.5s pauza. 
-                # Zabrání chybě 'br-connection-canceled', ale není tak dlouhá, aby ESP32 usnulo.
-                await asyncio.sleep(0.5) 
+                # ZLATÝ KOMPROMIS PRO RASPBERRY PI: 1.5s pauza. 
+                # BlueZ na malině je línější, půl vteřiny mu nestačilo a zahazoval spojení.
+                await asyncio.sleep(1.5) 
                 
                 publish_status("CONNECTING")
                 
@@ -61,7 +61,7 @@ async def connect_and_listen():
                 async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=10.0) as client_ble:
                     print("+++ PŘIPOJENO! Ovladač je aktivní. +++")
                     publish_status("READY") 
-                    consecutive_errors = 0 # Vynulujeme počítadlo chyb po úspěšném připojení
+                    consecutive_errors = 0 # Vynulujeme počítadlo chyb
                     
                     await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
                     
@@ -81,26 +81,21 @@ async def connect_and_listen():
             error_msg = str(e)
             print(f"Výpadek spojení: {error_msg}")
             
-            if "In Progress" in error_msg:
-                # Modul se zasekl na straně Linuxu
-                print("Modul je zaneprázdněn (In Progress), čekám 2 vteřiny...")
-                await asyncio.sleep(2.0)
-                consecutive_errors += 1
-            elif "br-connection-canceled" in error_msg:
-                # Systém zrušil proces, zkusíme to po krátké chvíli znovu
-                print("Spojení zrušeno systémem, zkouším to za chvíli znovu...")
-                await asyncio.sleep(0.5)
+            # KDYKOLIV se BlueZ zasekne, okamžitě mu odstřelíme zombie spojení
+            if "In Progress" in error_msg or "br-connection-canceled" in error_msg or "NotPermitted" in error_msg:
+                print("Uklízím zablokovanou paměť Bluetooth modulu...")
+                subprocess.run(['bluetoothctl', 'disconnect', TARGET_MAC], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                await asyncio.sleep(1.5)
                 consecutive_errors += 1
             elif "discover services" in error_msg:
-                # ESP32 pravděpodobně usnulo hned po spojení
                 print("Nepodařilo se načíst služby (ESP32 pravděpodobně usnulo).")
                 await asyncio.sleep(1.0)
             else:
                 await asyncio.sleep(1.0)
             
-            # OPRAVDOVÝ TVRDÝ RESTART ADAPTÉRU
-            if consecutive_errors >= 3:
-                print("!!! BlueZ modul je zacyklený. Provádím restart napájení Bluetooth...")
+            # OPRAVDOVÝ TVRDÝ RESTART ADAPTÉRU (Při velkém zacyklení)
+            if consecutive_errors >= 4:
+                print("!!! BlueZ modul je tvrdě zacyklený. Provádím restart napájení Bluetooth...")
                 try:
                     subprocess.run(['bluetoothctl', 'power', 'off'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     await asyncio.sleep(1.5)
