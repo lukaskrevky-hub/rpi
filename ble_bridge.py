@@ -55,12 +55,13 @@ async def connect_and_listen():
             
             if device:
                 publish_status("CONNECTING")
+                await asyncio.sleep(0.5) # Důležitý oddech po skenování
                 
                 # 2. METODICKÝ VSTUP DO POZICE (Až 3 klidné pokusy)
-                # Zcela ignorujeme krátkodobý šum a paniku modulu BlueZ.
                 for attempt in range(1, 4):
                     try:
-                        async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=5.0) as client_ble:
+                        # Používáme přímo TARGET_MAC místo objektu 'device'
+                        async with BleakClient(TARGET_MAC, disconnected_callback=disconnected_callback, timeout=6.0) as client_ble:
                             publish_status("READY") 
                             print("+++ PŘIPOJENO! Ovladač je aktivní. +++")
                             
@@ -74,12 +75,18 @@ async def connect_and_listen():
                             break # Úspěšně dokončeno, vyskakujeme z retry smyčky
                             
                     except Exception as e:
-                        # Tichá absorpce šumu (nebudeme uživateli vypisovat každou hloupost z Linuxu)
+                        # Vypíšeme chybu, abychom viděli, co se skutečně děje
+                        print(f"   [Tržní šum - Pokus {attempt}/3] {e}")
+                        
                         if attempt == 3:
-                            # Teprve pokud selžou 3 pokusy po sobě, provedeme úklid
-                            print("Modul je zaneprázdněn, čistím paměť...")
-                            subprocess.run(['bluetoothctl', 'disconnect', TARGET_MAC], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        await asyncio.sleep(0.5)
+                            # Kompletní restart adaptéru místo pouhého odpojení
+                            print("!!! Modul je tvrdě zacyklený. Provádím kompletní restart Bluetooth napájení...")
+                            subprocess.run(['bluetoothctl', 'power', 'off'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            await asyncio.sleep(1.0)
+                            subprocess.run(['bluetoothctl', 'power', 'on'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            await asyncio.sleep(2.0)
+                        else:
+                            await asyncio.sleep(1.0)
                 
                 # Po korektním odpojení nebo vyčerpání pokusů jdeme zpět do spánku
                 publish_status("SLEEP")
