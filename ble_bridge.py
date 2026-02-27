@@ -1,83 +1,57 @@
 import asyncio
-from bleak import BleakClient, BleakScanner
+from bleak import BleakClient
 import paho.mqtt.client as mqtt
 import sys
 
+TARGET_MAC = "10:06:1C:B5:A7:36"
+UART_TX_CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+
 MQTT_BROKER = "localhost"
-MQTT_TOPIC = "joystick/command"
-TOPIC_STATUS = "joystick/status"
-CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+TOPIC_CMD   = "joystick/command"
+TOPIC_STATE = "joystick/status"
 
-# TVOJE SPRÁVNÁ MAC ADRESA
-TARGET_MAC = "10:06:1C:B5:A7:34"
+mqttc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
-client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 try:
-    client.connect(MQTT_BROKER, 1883, 60)
-    client.loop_start()
+    mqttc.connect(MQTT_BROKER, 1883, 60)
+    mqttc.loop_start()
 except Exception as e:
-    print(f"Chyba MQTT: {e}")
+    print("MQTT chyba:", e)
     sys.exit(1)
 
-def notification_handler(sender, data):
-    cmd = data.decode('utf-8').strip()
-    print(f"PŘIJATO: {cmd}")
-    client.publish(MQTT_TOPIC, cmd)
+def publish_state(s):
+    print("STAV:", s)
+    mqttc.publish(TOPIC_STATE, s, retain=True)
+
+def on_ble_data(_, data):
+    mqttc.publish(TOPIC_CMD, data.decode().strip())
+
+def on_disconnect(_):
+    publish_state("SLEEP")
 
 async def main():
-    print("Startuji absolutně neprůstřelný odposlech...")
-    client.publish(TOPIC_STATUS, "SLEEP", retain=True)
+    publish_state("SLEEP")
 
     while True:
         try:
-            print("\n--- Naslouchám surovému signálu ze vzduchu ---")
-            
-            device_found = None
-            found_event = asyncio.Event()
+            async with BleakClient(
+                TARGET_MAC,
+                timeout=3.0,
+                disconnected_callback=on_disconnect
+            ) as client:
 
-            # Tato funkce se spustí při KAŽDÉM zachyceném signálu z okolí
-            def scan_callback(device, advertisement_data):
-                nonlocal device_found
-                if device.address.lower() == TARGET_MAC.lower():
-                    device_found = device
-                    found_event.set() # Signál zachycen, zastavujeme čekání!
+                await client.start_notify(UART_TX_CHAR_UUID, on_ble_data)
+                publish_state("READY")
 
-            # Extrémně rychlý skener, který obchází mezipaměť Linuxu
-            scanner = BleakScanner(detection_callback=scan_callback)
-            await scanner.start()
-            
-            # Čekáme na první záblesk z joysticku
-            await found_event.wait()
-            await scanner.stop()
-            
-            print(f">>> ZACHYCEN SIGNÁL ({device_found.rssi} dBm)! Okamžitě se připojuji... <<<")
-            client.publish(TOPIC_STATUS, "CONNECTING", retain=True)
-
-            def disconnect_callback(c):
-                print("--- ESP32 se odpojilo / usnulo ---")
-                client.publish(TOPIC_STATUS, "SLEEP", retain=True)
-
-            # Připojujeme se přímo přes nově nalezený objekt, ne přes textovou MAC
-            async with BleakClient(device_found, disconnected_callback=disconnect_callback, timeout=10.0) as ble_client:
-                print("+++ ÚSPĚŠNĚ PŘIPOJENO +++")
-                client.publish(TOPIC_STATUS, "READY", retain=True)
-                
-                await ble_client.start_notify(CHAR_UUID, notification_handler)
-                
-                # Zastavíme se zde a čekáme, dokud ESP32 samo neukončí spojení
-                while ble_client.is_connected:
+                while client.is_connected:
                     await asyncio.sleep(0.5)
 
-        except Exception as e:
-            print(f"Pokus o spojení selhal: {e}")
-            client.publish(TOPIC_STATUS, "SLEEP", retain=True)
-            await asyncio.sleep(1)
+        except Exception:
+            await asyncio.sleep(0.05)
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nUkončuji program...")
-        client.publish(TOPIC_STATUS, "SLEEP", retain=True)
-        client.loop_stop()
+        publish_state("SLEEP")
         sys.exit(0)
