@@ -71,7 +71,7 @@ async def connect_and_listen():
             print("Dávám modulu vteřinu na oddech před spojením...")
             await asyncio.sleep(1.0)
             
-            async with BleakClient(target_device, disconnected_callback=disconnected_callback, timeout=10.0) as client_ble:
+            async with BleakClient(target_device, disconnected_callback=disconnected_callback, timeout=2.0) as client_ble:
                 print("+++ PŘIPOJENO! Ovladač je aktivní. +++")
                 publish_status("READY") 
                 
@@ -101,3 +101,4 @@ if __name__ == "__main__":
         print("\nUkončuji program...")
         publish_status("SLEEP")
         sys.exit(0)
+
