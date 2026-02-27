@@ -44,32 +44,34 @@ async def connect_and_listen():
         try:
             print("\nSkener: Prohledávám okolí (4 vteřiny)...")
             
-            # Najdeme ÚPLNĚ VŠECHNA zařízení v okolí
-            devices = await BleakScanner.discover(timeout=4.0)
+            # Od verze knihovny Bleak 0.19+ se musí pro RSSI použít return_adv=True
+            devices_dict = await BleakScanner.discover(timeout=4.0, return_adv=True)
             target_device = None
+            target_rssi = None
             
             # Zkusíme v nich najít náš ovladač (buď podle MAC, nebo podle jména)
-            for d in devices:
+            for address, (d, adv) in devices_dict.items():
                 if d.address.lower() == TARGET_MAC.lower() or (d.name and "ESP-JOY" in d.name):
                     target_device = d
+                    target_rssi = adv.rssi
                     break
             
             if not target_device:
                 print("\n--- DIAGNOSTIKA: Náš ovladač nenalezen. Co malina vlastně vidí? ---")
-                if len(devices) == 0:
+                if len(devices_dict) == 0:
                     print("!!! RPi nevidí VŮBEC NIC. Zřejmě je zablokovaný Bluetooth modul.")
                     print("!!! Zkuste v terminálu: sudo systemctl restart bluetooth")
                 else:
-                    print(f"RPi vidí celkem {len(devices)} jiných zařízení:")
-                    for d in devices:
+                    print(f"RPi vidí celkem {len(devices_dict)} jiných zařízení:")
+                    for address, (d, adv) in devices_dict.items():
                         # Vypíšeme nalezená zařízení pro kontrolu
                         name = d.name if d.name else "Neznámé zařízení"
-                        print(f" - Jméno: {name} | MAC: {d.address} | RSSI: {d.rssi} dBm")
+                        print(f" - Jméno: {name} | MAC: {d.address} | RSSI: {adv.rssi} dBm")
                 print("-------------------------------------------------------------------")
                 await asyncio.sleep(2.0)
                 continue
                 
-            print(f"\n>>> NALEZENO NÁŠ OVLADAČ! (Jméno: {target_device.name}, MAC: {target_device.address}, RSSI: {target_device.rssi} dBm) <<<")
+            print(f"\n>>> NALEZENO NÁŠ OVLADAČ! (Jméno: {target_device.name}, MAC: {target_device.address}, RSSI: {target_rssi} dBm) <<<")
             publish_status("CONNECTING") 
             
             async with BleakClient(target_device, disconnected_callback=disconnected_callback, timeout=10.0) as client_ble:
