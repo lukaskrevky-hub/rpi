@@ -40,6 +40,8 @@ async def connect_and_listen():
     print(f"--- SPUŠTĚN STABILNÍ REŽIM PŘIPOJOVÁNÍ NA {TARGET_MAC} ---")
     publish_status("SLEEP")
     
+    consecutive_errors = 0
+    
     while True:
         try:
             # 1. Použijeme krátký skener
@@ -57,6 +59,7 @@ async def connect_and_listen():
                 async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=10.0) as client_ble:
                     print("+++ PŘIPOJENO! Ovladač je aktivní. +++")
                     publish_status("READY") 
+                    consecutive_errors = 0 # Vynulujeme počítadlo chyb po úspěšném připojení
                     
                     await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
                     
@@ -74,19 +77,31 @@ async def connect_and_listen():
             error_msg = str(e)
             print(f"Výpadek: {error_msg}")
             
-            # Pokud se BlueZ zasekne na inicializaci, pročistíme ho skrytým systémovým příkazem
-            if "br-connection-canceled" in error_msg or "In Progress" in error_msg or "discover services" in error_msg:
-                print("!!! Zjištěn zásek Linuxu. Čistím a čekám 2 vteřiny...")
-                # Asynchronní vyčištění, aby to nezablokovalo náš Python skript
+            if "In Progress" in error_msg:
+                # Pokud již probíhá připojování, počkáme déle, než se pokusíme o další,
+                # abychom nenarušili probíhající proces
+                print("Připojení již probíhá, čekám 3 vteřiny...")
+                await asyncio.sleep(3.0)
+                consecutive_errors += 1
+            elif "br-connection-canceled" in error_msg or "discover services" in error_msg:
+                print("!!! Zjištěn zásek Linuxu. Čekám 2 vteřiny...")
+                await asyncio.sleep(2.0)
+                consecutive_errors += 1
+            else:
+                await asyncio.sleep(1.0)
+            
+            # Tvrdý restart aplikujeme až po opakovaných selháních, 
+            # ne při každé chybě In Progress
+            if consecutive_errors >= 3:
+                print("!!! Vícečetné selhání připojení. Provádím tvrdý úklid...")
                 proc = await asyncio.create_subprocess_exec(
                     'bluetoothctl', 'disconnect', TARGET_MAC,
                     stdout=asyncio.subprocess.DEVNULL, 
                     stderr=asyncio.subprocess.DEVNULL
                 )
                 await proc.wait()
-                await asyncio.sleep(2.0)
-            else:
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(3.0)
+                consecutive_errors = 0 # Vynulujeme počítadlo po tvrdém úklidu
 
 if __name__ == "__main__":
     try:
