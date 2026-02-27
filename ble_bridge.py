@@ -13,7 +13,7 @@ UART_TX_CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 # MQTT Konfigurace
 MQTT_BROKER = "localhost"
 MQTT_TOPIC = "joystick/command"
-TOPIC_STATUS = "joystick/status"  # <--- NOVÉ: Téma pro stav
+TOPIC_STATUS = "joystick/status"  # Téma pro stav
 
 # --- MQTT SETUP ---
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
@@ -54,19 +54,24 @@ async def connect_and_listen():
         try:
             print(f"Čekám na probuzení joysticku ({TARGET_MAC})...")
             
-            # Zvýšený timeout na 30 sekund
+            # Zvýšený timeout na 30 sekund (původně 15)
             async with BleakClient(TARGET_MAC, disconnected_callback=disconnected_callback, timeout=30.0) as client:
                 
+                # Pokud jsme se dostali sem, handshaking začal
                 publish_status("CONNECTING") 
                 print("Navazuji spojení...")
                 
+                # Zapneme notifikace
                 await client.start_notify(UART_TX_CHAR_UUID, notification_handler)
                 
                 print("PŘIPOJENO! Ovladač je aktivní.")
                 publish_status("READY") 
                 
+                # Smyčka udržující spojení
                 while client.is_connected:
                     await asyncio.sleep(0.5)
+            
+            # Zde se kód dostane po odpojení
             
         except asyncio.TimeoutError:
             print("Timeout při připojování (joystick pravděpodobně spí)")
@@ -82,4 +87,3 @@ if __name__ == "__main__":
         print("\nUkončuji program...")
         publish_status("SLEEP")
         sys.exit(0)
-
