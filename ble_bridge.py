@@ -36,67 +36,81 @@ def notification_handler(sender, data):
     command = data.decode('utf-8').strip()
     client.publish(MQTT_TOPIC, command)
 
-async def kill_ghost_connection():
-    """Tento buldozer okamžitě smaže zaseknuté spojení z paměti Linuxu, 
-       aby bylo RPi připraveno na další připojení."""
+async def hard_reset_bluetooth():
+    """Nekompromisní restart celého adaptéru - vypne a zapne napájení."""
+    print(">>> PROVÁDÍM TVRDÝ RESTART BLUETOOTH ADAPTÉRU <<<")
     try:
-        proc = await asyncio.create_subprocess_exec(
-            'bluetoothctl', 'disconnect', TARGET_MAC,
+        # Vypnutí Bluetooth
+        proc_off = await asyncio.create_subprocess_exec(
+            'bluetoothctl', 'power', 'off',
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL
         )
-        await proc.wait()
-    except Exception:
-        pass
+        await proc_off.wait()
+        await asyncio.sleep(1.0) # Dáme modulu 1 vteřinu na úplné vybití
+        
+        # Zapnutí Bluetooth
+        proc_on = await asyncio.create_subprocess_exec(
+            'bluetoothctl', 'power', 'on',
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+        await proc_on.wait()
+        await asyncio.sleep(2.0) # Dáme modulu 2 vteřiny na kompletní nastartování
+        print(">>> ADAPTÉR JE ČISTÝ A PŘIPRAVENÝ <<<")
+    except Exception as e:
+        print(f"Chyba při restartu: {e}")
 
 async def connect_and_listen():
-    print(f"--- SPUŠTĚN STABILIZOVANÝ REŽIM NA {TARGET_MAC} ---")
+    print(f"--- SPUŠTĚN REŽIM S TVRDÝM RESTARTEM NA {TARGET_MAC} ---")
     publish_status("SLEEP")
     
-    # Pro jistotu vyčistíme porty hned po startu skriptu
-    await kill_ghost_connection()
+    # 1. Čistý stůl hned po startu
+    await hard_reset_bluetooth()
     
     while True:
         try:
-            # 1. Tichá a neviditelná smyčka - čekáme, až se ovladač objeví ve vzduchu
+            # Čekáme, až se ovladač objeví ve vzduchu
             device = None
             while not device:
                 device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=3.0)
             
             publish_status("CONNECTING")
-            print(">>> Ovladač nalezen. Dávám modulu 1 vteřinu na oddech...")
+            print(">>> Ovladač nalezen. Navazuji spojení...")
             
-            # ZLATÁ PAUZA: Nutná pro BlueZ modul v Linuxu. Bez ní se spojení
-            # zhroutí ihned po skenování (vyhodí br-connection-canceled).
-            await asyncio.sleep(1.0)
+            # Drobná pauza už stačí, adaptér je dokonale čistý
+            await asyncio.sleep(0.5)
             
-            # 2. Připojení k nalezenému objektu
+            # Připojení k nalezenému objektu
             async with BleakClient(device, timeout=10.0) as client_ble:
                 publish_status("READY") 
                 print("\n+++ PŘIPOJENO! Ovladač je aktivní. +++")
                 
                 await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
                 
-                # Držíme spojení
+                # Držíme spojení, dokud pacient neustane v činnosti
                 while client_ble.is_connected:
                     await asyncio.sleep(0.5)
             
-            # 3. Jakmile se ESP32 uspí, jdeme okamžitě uklízet
+            # Jakmile se ESP32 uspí...
             print("--- Ovladač usnul ---")
             publish_status("SLEEP")
-            await kill_ghost_connection()
-            await asyncio.sleep(1.0)
+            
+            # 2. OKAMŽITÝ TVRDÝ RESTART!
+            # Uživatel teď ovladač nepotřebuje, takže máme čas (3 vteřiny) 
+            # na pozadí Linux vyčistit, aby byl připraven na další použití.
+            await hard_reset_bluetooth()
             
         except Exception as e:
             error_msg = str(e)
             
-            # Vrátili jsme výpis chyb, abychom nebyli "slepí"
             if "was not found" not in error_msg:
                 print(f"   [Chyba spojení] {error_msg}")
                 
             publish_status("SLEEP")
-            await kill_ghost_connection()
-            await asyncio.sleep(1.0)
+            
+            # 3. Tvrdý restart při jakékoliv chybě
+            await hard_reset_bluetooth()
 
 if __name__ == "__main__":
     try:
