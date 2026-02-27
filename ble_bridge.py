@@ -2,6 +2,7 @@ import asyncio
 from bleak import BleakClient, BleakScanner
 import paho.mqtt.client as mqtt
 import sys
+import subprocess
 
 # ==========================================
 # CÍLOVÁ MAC ADRESA (Potvrzená)
@@ -40,26 +41,22 @@ async def connect_and_listen():
     print(f"--- SPUŠTĚN STABILNÍ REŽIM PŘIPOJOVÁNÍ NA {TARGET_MAC} ---")
     publish_status("SLEEP")
     
-    consecutive_errors = 0
+    consecutive_in_progress = 0
     
     while True:
         try:
-            # 1. Použijeme krátký skener
-            device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=3.0)
+            # 1. Rychlý skener (2 vteřiny)
+            device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=2.0)
             
             if device:
-                print("Nalezeno! Dávám Bluetooth modulu 1 vteřinu na přípravu...")
-                # ZLATÉ PRAVIDLO: Po skenování nesmíme na Linux tlačit okamžitě. 
-                # Tato pauza zabrání chybám 'br-connection-canceled' a 'failed to discover services'
-                await asyncio.sleep(1.0)
-                
+                print("Nalezeno! Okamžitě navazuji spojení...")
                 publish_status("CONNECTING")
                 
-                # 2. Připojíme se
-                async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=10.0) as client_ble:
+                # 2. BLESKOVÉ PŘIPOJENÍ - Bez jakýchkoliv pauz!
+                async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=7.0) as client_ble:
                     print("+++ PŘIPOJENO! Ovladač je aktivní. +++")
                     publish_status("READY") 
-                    consecutive_errors = 0 # Vynulujeme počítadlo chyb po úspěšném připojení
+                    consecutive_in_progress = 0 # Vynulujeme počítadlo chyb po úspěšném připojení
                     
                     await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
                     
@@ -67,41 +64,46 @@ async def connect_and_listen():
                         await asyncio.sleep(0.5)
                 
                 # 3. Odpojení
-                print("Dávám systému 1.5 vteřiny na vyčištění socketů...")
-                await asyncio.sleep(1.5)
+                print("Spojení ukončeno, čekám 0.5s...")
+                await asyncio.sleep(0.5)
                 
             else:
-                await asyncio.sleep(0.5)
+                # Ovladač spí
+                await asyncio.sleep(0.2)
                 
         except Exception as e:
             error_msg = str(e)
             print(f"Výpadek: {error_msg}")
             
             if "In Progress" in error_msg:
-                # Pokud již probíhá připojování, počkáme déle, než se pokusíme o další,
-                # abychom nenarušili probíhající proces
-                print("Připojení již probíhá, čekám 3 vteřiny...")
-                await asyncio.sleep(3.0)
-                consecutive_errors += 1
-            elif "br-connection-canceled" in error_msg or "discover services" in error_msg:
-                print("!!! Zjištěn zásek Linuxu. Čekám 2 vteřiny...")
+                # Připojení se zaseklo na straně Linuxu
+                print("Připojení se zaseklo (In Progress), čekám...")
                 await asyncio.sleep(2.0)
-                consecutive_errors += 1
+                consecutive_in_progress += 1
+            elif "br-connection-canceled" in error_msg:
+                # U této chyby je nejlepší zkusit to hned znovu, nečekat
+                await asyncio.sleep(0.2)
+            elif "discover services" in error_msg:
+                # Připojilo se to, ale ESP32 hned usnulo nebo spadlo
+                await asyncio.sleep(0.5)
             else:
                 await asyncio.sleep(1.0)
             
-            # Tvrdý restart aplikujeme až po opakovaných selháních, 
-            # ne při každé chybě In Progress
-            if consecutive_errors >= 3:
-                print("!!! Vícečetné selhání připojení. Provádím tvrdý úklid...")
-                proc = await asyncio.create_subprocess_exec(
-                    'bluetoothctl', 'disconnect', TARGET_MAC,
-                    stdout=asyncio.subprocess.DEVNULL, 
-                    stderr=asyncio.subprocess.DEVNULL
-                )
-                await proc.wait()
-                await asyncio.sleep(3.0)
-                consecutive_errors = 0 # Vynulujeme počítadlo po tvrdém úklidu
+            # OPRAVDOVÝ TVRDÝ RESTART ADAPTÉRU
+            # Pokud se BlueZ zasekne ve smyčce "In Progress", vypneme a zapneme samotný Bluetooth
+            if consecutive_in_progress >= 2:
+                print("!!! BlueZ modul je zcela zaseknutý. Provádím restart napájení Bluetooth...")
+                try:
+                    # Vypne Bluetooth rádio
+                    subprocess.run(['bluetoothctl', 'power', 'off'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    await asyncio.sleep(1.0)
+                    # Zapne Bluetooth rádio
+                    subprocess.run(['bluetoothctl', 'power', 'on'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    await asyncio.sleep(2.0)
+                except Exception as ex:
+                    print(f"Nepodařilo se restartovat Bluetooth: {ex}")
+                
+                consecutive_in_progress = 0 # Vynulujeme počítadlo po restartu
 
 if __name__ == "__main__":
     try:
