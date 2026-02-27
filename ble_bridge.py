@@ -4,7 +4,7 @@ import paho.mqtt.client as mqtt
 import sys
 
 # ==========================================
-# POTVRZENÁ SPRÁVNÁ MAC ADRESA
+# CÍLOVÁ MAC ADRESA
 TARGET_MAC = "10:06:1C:B5:A7:34"
 # ==========================================
 
@@ -42,26 +42,42 @@ async def connect_and_listen():
     
     while True:
         try:
-            print("Skener: Hledám zařízení ve vzduchu...")
+            print("\nSkener: Prohledávám okolí (4 vteřiny)...")
             
-            # Nejdříve zařízení vždy fyzicky vyhledáme. Tím obejdeme 99 % chyb v Linuxu.
-            device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=4.0)
+            # Najdeme ÚPLNĚ VŠECHNA zařízení v okolí
+            devices = await BleakScanner.discover(timeout=4.0)
+            target_device = None
             
-            if not device:
-                print("Zařízení zatím nenalezeno. Zkouším to znovu...")
+            # Zkusíme v nich najít náš ovladač (buď podle MAC, nebo podle jména)
+            for d in devices:
+                if d.address.lower() == TARGET_MAC.lower() or (d.name and "ESP-JOY" in d.name):
+                    target_device = d
+                    break
+            
+            if not target_device:
+                print("\n--- DIAGNOSTIKA: Náš ovladač nenalezen. Co malina vlastně vidí? ---")
+                if len(devices) == 0:
+                    print("!!! RPi nevidí VŮBEC NIC. Zřejmě je zablokovaný Bluetooth modul.")
+                    print("!!! Zkuste v terminálu: sudo systemctl restart bluetooth")
+                else:
+                    print(f"RPi vidí celkem {len(devices)} jiných zařízení:")
+                    for d in devices:
+                        # Vypíšeme nalezená zařízení pro kontrolu
+                        name = d.name if d.name else "Neznámé zařízení"
+                        print(f" - Jméno: {name} | MAC: {d.address} | RSSI: {d.rssi} dBm")
+                print("-------------------------------------------------------------------")
+                await asyncio.sleep(2.0)
                 continue
                 
-            print(f">>> NALEZENO! (Síla signálu: {device.rssi} dBm) <<<")
+            print(f"\n>>> NALEZENO NÁŠ OVLADAČ! (Jméno: {target_device.name}, MAC: {target_device.address}, RSSI: {target_device.rssi} dBm) <<<")
             publish_status("CONNECTING") 
             
-            # Připojujeme se přímo přes nalezený objekt, ne jen přes textovou MAC
-            async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=10.0) as client_ble:
+            async with BleakClient(target_device, disconnected_callback=disconnected_callback, timeout=10.0) as client_ble:
                 print("+++ PŘIPOJENO! Ovladač je aktivní. +++")
                 publish_status("READY") 
                 
                 await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
                 
-                # Udržujeme spojení, dokud se zařízení neodpojí
                 while client_ble.is_connected:
                     await asyncio.sleep(0.5)
             
