@@ -24,51 +24,52 @@ def notification_handler(sender, data):
     print(f"PŘIJATO BLE: {cmd}")
     client.publish(MQTT_TOPIC, cmd)
 
+async def connect_and_listen():
+    print("Hledám ESP32 (ignoruji starou paměť, čekám na čerstvý signál)...")
+    
+    # TRIK 1: Použijeme filtr. To donutí Linux ignorovat starou paměť
+    # a musí fyzicky uslyšet nový inzertní paket z ESP32.
+    device = await BleakScanner.find_device_by_filter(
+        lambda d, ad: d.address.lower() == TARGET_MAC.lower(),
+        timeout=5.0
+    )
+
+    if not device:
+        return # Nic jsme neslyšeli, smyčka v main() se zopakuje
+
+    print(f">>> ZACHYCEN ČERSTVÝ SIGNÁL! (RSSI: {device.rssi} dBm) <<<")
+    client.publish(TOPIC_STATUS, "CONNECTING", retain=True)
+
+    disconnect_event = asyncio.Event()
+
+    def handle_disconnect(_):
+        print("!!! ESP32 ukončilo spojení (Usnulo) !!!")
+        client.publish(TOPIC_STATUS, "SLEEP", retain=True)
+        disconnect_event.set()
+
+    try:
+        # TRIK 2: Předáme BleakClientovi přímo textovou adresu, ne objekt 'device'. 
+        # Na Raspberry Pi to obchází velmi nepříjemný bug v BlueZ modulu.
+        async with BleakClient(TARGET_MAC, disconnected_callback=handle_disconnect, timeout=10.0) as ble_client:
+            print("+++ BLESKOVĚ PŘIPOJENO! Systém je AKTIVNÍ +++")
+            client.publish(TOPIC_STATUS, "READY", retain=True)
+            
+            await ble_client.start_notify(CHAR_UUID, notification_handler)
+            
+            # Čekáme, dokud se událost nesepne (ESP32 se neodpojí)
+            await disconnect_event.wait()
+            
+    except Exception as e:
+        print(f"Chyba při pokusu o spojení: {e}")
+        client.publish(TOPIC_STATUS, "SLEEP", retain=True)
+        await asyncio.sleep(1)
+
 async def main():
-    print(f"Startuji NEPRŮSTŘELNÝ skener pro MAC: {TARGET_MAC}...")
+    print(f"Startuji FINÁLNÍ a NEJSTABILNĚJŠÍ verzi pro MAC: {TARGET_MAC}")
     client.publish(TOPIC_STATUS, "SLEEP", retain=True)
 
     while True:
-        try:
-            print("Hledám ESP32 (čekám na probuzení)...")
-            
-            # 1. Hledáme zařízení podle MAC adresy (Timeout 5 vteřin)
-            device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=5.0)
-
-            if device:
-                # Našli jsme ho! Vypíšeme i sílu signálu pro kontrolu.
-                print(f">>> NALEZENO ESP32! Síla signálu (RSSI): {device.rssi} dBm <<<")
-                print("Pokouším se o spojení...")
-                
-                client.publish(TOPIC_STATUS, "CONNECTING", retain=True)
-
-                # Definice callbacku pro odpojení
-                def handle_disconnect(_):
-                    print("!!! ESP32 ukončilo spojení (Usnulo) !!!")
-                    client.publish(TOPIC_STATUS, "SLEEP", retain=True)
-
-                # 2. Připojení přímo k nalezenému zařízení (Nejspolehlivější metoda)
-                async with BleakClient(device, timeout=10.0, disconnected_callback=handle_disconnect) as ble_client:
-                    
-                    print("+++ BLESKOVĚ PŘIPOJENO! Systém je AKTIVNÍ +++")
-                    client.publish(TOPIC_STATUS, "READY", retain=True)
-                    
-                    # Začneme přijímat data z joysticku
-                    await ble_client.start_notify(CHAR_UUID, notification_handler)
-                    
-                    # Držíme spojení, dokud ho ESP32 samo neukončí (15s timeout na ESP)
-                    while ble_client.is_connected:
-                        await asyncio.sleep(0.5)
-            
-            else:
-                # Zařízení se za 5 vteřin nenašlo (ESP32 spí), smyčka pojede znovu
-                pass
-                
-        except Exception as e:
-            # V případě chyby BlueZ modulu vypíšeme varování a chvíli počkáme
-            print(f"Chyba při komunikaci: {e}")
-            client.publish(TOPIC_STATUS, "SLEEP", retain=True)
-            await asyncio.sleep(1)
+        await connect_and_listen()
 
 if __name__ == "__main__":
     try:
