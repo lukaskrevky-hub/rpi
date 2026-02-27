@@ -1,12 +1,11 @@
 import asyncio
-from bleak import BleakClient, BleakScanner
+from bleak import BleakClient
 import paho.mqtt.client as mqtt
 import sys
 import subprocess
 
 # ==========================================
-# CÍLOVÁ MAC ADRESA PRO BLUETOOTH
-# (Bluetooth MAC je u ESP32 vždy o +2 vyšší než Wi-Fi MAC. Wi-Fi byla 34, takže BLE je 36)
+# CÍLOVÁ MAC ADRESA (Nyní 100% potvrzená)
 TARGET_MAC = "10:06:1C:B5:A7:36"
 # ==========================================
 
@@ -39,60 +38,42 @@ def disconnected_callback(client):
     publish_status("SLEEP")
 
 async def connect_and_listen():
-    print(f"--- SPUŠTĚNO SKENOVÁNÍ A PŘIPOJOVÁNÍ NA {TARGET_MAC} ---")
+    print(f"--- SPUŠTĚNO RYCHLÉ PŘÍMÉ PŘIPOJOVÁNÍ NA {TARGET_MAC} ---")
     publish_status("SLEEP")
     
     while True:
         try:
-            print("\nSkener: Prohledávám okolí (4 vteřiny)...")
-            
-            # Od verze knihovny Bleak 0.19+ se musí pro RSSI použít return_adv=True
-            devices_dict = await BleakScanner.discover(timeout=4.0, return_adv=True)
-            target_device = None
-            target_rssi = None
-            
-            # Najdeme náš ovladač (buď podle jména nebo podle MAC)
-            for address, (d, adv) in devices_dict.items():
-                if d.address.lower() == TARGET_MAC.lower() or (d.name and "ESP-JOY" in d.name):
-                    target_device = d
-                    target_rssi = adv.rssi
-                    break
-            
-            if not target_device:
-                print("Zařízení nenalezeno, zkouším to znovu...")
-                await asyncio.sleep(1.0)
-                continue
+            # PŘÍMÉ PŘIPOJENÍ (Direct Connect) - Zahozen pomalý skener!
+            # Timeout 3.0s: Pokud joystick spí, malina to zjistí za 3 vteřiny a zkusí to znovu.
+            # Jakmile se joystick probudí, malina ho chytí prakticky okamžitě.
+            async with BleakClient(TARGET_MAC, disconnected_callback=disconnected_callback, timeout=3.0) as client_ble:
                 
-            print(f"\n>>> NALEZENO NÁŠ OVLADAČ! (Jméno: {target_device.name}, MAC: {target_device.address}, RSSI: {target_rssi} dBm) <<<")
-            publish_status("CONNECTING") 
-            
-            # WORKAROUND PRO RASPBERRY PI ("In Progress" bug):
-            # Musíme dát Bluetooth modulu chvíli oddech po skenování, než navážeme spojení.
-            print("Dávám modulu vteřinu na oddech před spojením...")
-            await asyncio.sleep(1.0)
-            
-            async with BleakClient(target_device, disconnected_callback=disconnected_callback, timeout=10.0) as client_ble:
+                publish_status("CONNECTING")
                 print("+++ PŘIPOJENO! Ovladač je aktivní. +++")
                 publish_status("READY") 
                 
                 # Zapneme příjem zpráv z joysticku
                 await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
                 
-                # Udržujeme spojení dokud se ovladač po 15 vteřinách nečinnosti sám neuspí
+                # Udržujeme spojení, dokud se ovladač sám neuspí
                 while client_ble.is_connected:
                     await asyncio.sleep(0.5)
             
         except Exception as e:
             error_msg = str(e)
-            print(f"Chyba při komunikaci: {error_msg}")
             
-            # Pokud se BlueZ zasekne, provedeme tvrdý restart konkrétního spojení v Linuxu
+            # Nebudeme spamovat terminál chybou "Device not found" (když joystick běžně spí)
+            if "was not found" not in error_msg and "EOFError" not in error_msg:
+                print(f"Drobný výpadek spojení: {error_msg}")
+            
+            # Záchranná brzda: Pokud se BlueZ zasekne na starém pokusu, pročistíme to
             if "In Progress" in error_msg or "br-connection-canceled" in error_msg:
-                print("!!! Zjištěno zaseknutí (In Progress). Provádím tvrdý úklid...")
+                print("!!! Zjištěno zaseknutí modulu. Čistím Linuxovou paměť...")
                 subprocess.run(["bluetoothctl", "disconnect", TARGET_MAC], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                await asyncio.sleep(2.0)
-            else:
                 await asyncio.sleep(1.0)
+            
+            # Krátká pauza před dalším pokusem
+            await asyncio.sleep(0.5)
 
 if __name__ == "__main__":
     try:
@@ -101,6 +82,3 @@ if __name__ == "__main__":
         print("\nUkončuji program...")
         publish_status("SLEEP")
         sys.exit(0)
-
-
-
