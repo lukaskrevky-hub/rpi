@@ -4,8 +4,8 @@ import paho.mqtt.client as mqtt
 import sys
 
 # ==========================================
-# ODSTRANĚNA MAC ADRESA! 
-# Systém si ovladač najde sám podle názvu "ESP-JOY"
+# POTVRZENÁ SPRÁVNÁ MAC ADRESA
+TARGET_MAC = "10:06:1C:B5:A7:34"
 # ==========================================
 
 UART_TX_CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
@@ -36,46 +36,38 @@ def disconnected_callback(client):
     print(">>> Ztráta spojení (Joystick usnul nebo je mimo dosah).")
     publish_status("SLEEP")
 
-# Filtr pro nalezení ESP32 podle jména
-def is_esp_joy(device, adv_data):
-    if device.name and "ESP-JOY" in device.name:
-        return True
-    if adv_data.local_name and "ESP-JOY" in adv_data.local_name:
-        return True
-    return False
-
 async def connect_and_listen():
-    print("--- SPUŠTĚNO AUTODETEKČNÍ HLEDÁNÍ OVLADAČE 'ESP-JOY' ---")
+    print(f"--- SPUŠTĚNO SKENOVÁNÍ A PŘIPOJOVÁNÍ NA {TARGET_MAC} ---")
     publish_status("SLEEP")
     
     while True:
         try:
-            print("Skener: Čekám na probuzení joysticku ve vzduchu...")
+            print("Skener: Hledám zařízení ve vzduchu...")
             
-            # Skener běží 3 vteřiny a hledá cokoliv s názvem ESP-JOY
-            device = await BleakScanner.find_device_by_filter(is_esp_joy, timeout=3.0)
+            # Nejdříve zařízení vždy fyzicky vyhledáme. Tím obejdeme 99 % chyb v Linuxu.
+            device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=4.0)
             
             if not device:
-                # Nic jsme nenašli, jdeme hledat znovu (rychlá smyčka)
+                print("Zařízení zatím nenalezeno. Zkouším to znovu...")
                 continue
                 
-            print(f">>> NALEZENO! Adresa: {device.address} (Síla signálu: {device.rssi} dBm) <<<")
+            print(f">>> NALEZENO! (Síla signálu: {device.rssi} dBm) <<<")
             publish_status("CONNECTING") 
             
-            # Připojujeme se přímo přes NALEZENÝ OBJEKT (Nejstabilnější metoda pro Linux)
-            async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=5.0) as client_ble:
+            # Připojujeme se přímo přes nalezený objekt, ne jen přes textovou MAC
+            async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=10.0) as client_ble:
                 print("+++ PŘIPOJENO! Ovladač je aktivní. +++")
                 publish_status("READY") 
                 
                 await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
                 
-                # Udržujeme spojení, dokud ho ESP32 (po 15s) samo neukončí
+                # Udržujeme spojení, dokud se zařízení neodpojí
                 while client_ble.is_connected:
                     await asyncio.sleep(0.5)
             
         except Exception as e:
-            # Tichý restart smyčky při případné kolizi na Bluetooth
-            await asyncio.sleep(0.2)
+            print(f"Chyba při komunikaci: {e}")
+            await asyncio.sleep(1.0)
 
 if __name__ == "__main__":
     try:
