@@ -1,54 +1,87 @@
 import asyncio
-from bleak import BleakClient
+from bleak import BleakClient, BleakError
 import paho.mqtt.client as mqtt
 import sys
 
+# ==========================================
+# VAŠE ZJIŠTĚNÁ MAC ADRESA
 TARGET_MAC = "10:06:1C:B5:A7:36"
+# ==========================================
+
 UART_TX_CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
+# MQTT Konfigurace
 MQTT_BROKER = "localhost"
-TOPIC_CMD   = "joystick/command"
-TOPIC_STATE = "joystick/status"
+MQTT_TOPIC = "joystick/command"
+TOPIC_STATUS = "joystick/status"  # <--- NOVÉ: Téma pro stav
 
-mqttc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-mqttc.connect(MQTT_BROKER, 1883, 60)
-mqttc.loop_start()
+# --- MQTT SETUP ---
+client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
-def publish_state(s):
-    print("STAV:", s)
-    mqttc.publish(TOPIC_STATE, s, retain=True)
+try:
+    client.connect(MQTT_BROKER, 1883, 60)
+    client.loop_start()
+    print("MQTT připojeno.")
+except Exception as e:
+    print(f"Chyba MQTT: {e}")
+    sys.exit(1)
 
-def on_ble_data(_, data):
-    mqttc.publish(TOPIC_CMD, data.decode().strip())
+# --- POMOCNÉ FUNKCE ---
 
-def on_disconnect(_):
-    publish_state("SLEEP")
+def publish_status(status):
+    """Odeslání stavu do MQTT (retain=True aby si to web načetl i po refresh)"""
+    print(f"STAV -> {status}") 
+    client.publish(TOPIC_STATUS, status, retain=True)
 
-async def main():
-    publish_state("SLEEP")
+def notification_handler(sender, data):
+    """Zpracování dat přijatých z ESP32."""
+    command = data.decode('utf-8').strip()
+    print(f"Přijato z BLE: {command}")
+    client.publish(MQTT_TOPIC, command)
 
+def disconnected_callback(client):
+    """Zavolá se, když se ESP32 odpojí (usne)."""
+    print(">>> Ztráta spojení (Joystick usnul nebo je mimo dosah).")
+    publish_status("SLEEP")
+
+# --- HLAVNÍ SMYČKA PRO PŘIPOJENÍ ---
+
+async def connect_and_listen():
+    print(f"--- SPUŠTĚN DIRECT CONNECT NA {TARGET_MAC} ---")
+    publish_status("SLEEP")
+    
     while True:
         try:
-            print("Připojuji se k ESP32...")
-            async with BleakClient(
-                TARGET_MAC,
-                timeout=5.0,
-                disconnected_callback=on_disconnect
-            ) as client:
-
-                print("BLE připojeno")
-                publish_state("READY")
-                await client.start_notify(UART_TX_CHAR_UUID, on_ble_data)
-
+            print(f"Čekám na probuzení joysticku ({TARGET_MAC})...")
+            
+            # timeout=15.0: RPi bude 15 sekund čekat na této adrese.
+            async with BleakClient(TARGET_MAC, disconnected_callback=disconnected_callback, timeout=15.0) as client:
+                
+                # Pokud jsme se dostali sem, handshaking začal
+                publish_status("CONNECTING") 
+                print("Navazuji spojení...")
+                
+                # Zapneme notifikace
+                await client.start_notify(UART_TX_CHAR_UUID, notification_handler)
+                
+                print("PŘIPOJENO! Ovladač je aktivní.")
+                publish_status("READY") 
+                
+                # Smyčka udržující spojení
                 while client.is_connected:
                     await asyncio.sleep(0.5)
-
+            
+            # Zde se kód dostane po odpojení
+            
         except Exception as e:
-            await asyncio.sleep(0.2)
+            # Pokud se připojení nepovede (joystick spí), je to OK.
+            await asyncio.sleep(0.1)
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        asyncio.run(connect_and_listen())
     except KeyboardInterrupt:
-        publish_state("SLEEP")
+        print("\nUkončuji program...")
+        publish_status("SLEEP")
         sys.exit(0)
+
