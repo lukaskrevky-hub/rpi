@@ -2,14 +2,13 @@ import asyncio
 from bleak import BleakClient, BleakScanner
 import paho.mqtt.client as mqtt
 import sys
-import subprocess
 
 MQTT_BROKER = "localhost"
 MQTT_TOPIC = "joystick/command"
 TOPIC_STATUS = "joystick/status"
 CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
-# SPRÁVNÁ MAC ADRESA
+# TVOJE SPRÁVNÁ MAC ADRESA
 TARGET_MAC = "10:06:1C:B5:A7:34"
 
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
@@ -21,55 +20,58 @@ except Exception as e:
     sys.exit(1)
 
 def notification_handler(sender, data):
-    cmd = data.decode('utf-8')
-    print(f"PŘIJATO BLE: {cmd}")
+    cmd = data.decode('utf-8').strip()
+    print(f"PŘIJATO: {cmd}")
     client.publish(MQTT_TOPIC, cmd)
 
-async def connect_and_listen():
-    print("\nHledám ESP32 (Pohněte páčkou pro probuzení)...")
-    
-    # Rychlé a spolehlivé hledání (timeout 5s)
-    device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=5.0)
-
-    if not device:
-        return # Nic jsme neslyšeli, zkusíme to hned znovu
-
-    print(f">>> ESP32 NALEZENO! (Síla signálu: {device.rssi} dBm) <<<")
-    client.publish(TOPIC_STATUS, "CONNECTING", retain=True)
-
-    disconnect_event = asyncio.Event()
-
-    def handle_disconnect(_):
-        print("!!! ESP32 ukončilo spojení (Usnulo) !!!")
-        client.publish(TOPIC_STATUS, "SLEEP", retain=True)
-        disconnect_event.set()
-
-    try:
-        # Připojujeme se přímo přes nalezený OBJEKT, nikoliv přes MAC adresu
-        # To nutí Linux vynechat cache a připojit se okamžitě
-        async with BleakClient(device, disconnected_callback=handle_disconnect, timeout=10.0) as ble_client:
-            print("+++ BLESKOVĚ PŘIPOJENO! Systém je AKTIVNÍ +++")
-            client.publish(TOPIC_STATUS, "READY", retain=True)
-            
-            await ble_client.start_notify(CHAR_UUID, notification_handler)
-            
-            # Čekáme na slušné odpojení z ESP32 po 15 vteřinách
-            await disconnect_event.wait()
-            
-    except Exception as e:
-        print(f"Chyba při pokusu o spojení: {e}")
-        client.publish(TOPIC_STATUS, "SLEEP", retain=True)
-        
-        # Pojistka pročištění případně zaseklé paměti Bluetooth
-        subprocess.run(["bluetoothctl", "remove", TARGET_MAC], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        await asyncio.sleep(1)
-
 async def main():
-    print(f"Startuji ULTRA-RYCHLOU verzi pro MAC: {TARGET_MAC}")
+    print("Startuji absolutně neprůstřelný odposlech...")
     client.publish(TOPIC_STATUS, "SLEEP", retain=True)
 
     while True:
-        await connect_and_listen()
+        try:
+            print("\n--- Naslouchám surovému signálu ze vzduchu ---")
+            
+            device_found = None
+            found_event = asyncio.Event()
+
+            # Tato funkce se spustí při KAŽDÉM zachyceném signálu z okolí
+            def scan_callback(device, advertisement_data):
+                nonlocal device_found
+                if device.address.lower() == TARGET_MAC.lower():
+                    device_found = device
+                    found_event.set() # Signál zachycen, zastavujeme čekání!
+
+            # Extrémně rychlý skener, který obchází mezipaměť Linuxu
+            scanner = BleakScanner(detection_callback=scan_callback)
+            await scanner.start()
+            
+            # Čekáme na první záblesk z joysticku
+            await found_event.wait()
+            await scanner.stop()
+            
+            print(f">>> ZACHYCEN SIGNÁL ({device_found.rssi} dBm)! Okamžitě se připojuji... <<<")
+            client.publish(TOPIC_STATUS, "CONNECTING", retain=True)
+
+            def disconnect_callback(c):
+                print("--- ESP32 se odpojilo / usnulo ---")
+                client.publish(TOPIC_STATUS, "SLEEP", retain=True)
+
+            # Připojujeme se přímo přes nově nalezený objekt, ne přes textovou MAC
+            async with BleakClient(device_found, disconnected_callback=disconnect_callback, timeout=10.0) as ble_client:
+                print("+++ ÚSPĚŠNĚ PŘIPOJENO +++")
+                client.publish(TOPIC_STATUS, "READY", retain=True)
+                
+                await ble_client.start_notify(CHAR_UUID, notification_handler)
+                
+                # Zastavíme se zde a čekáme, dokud ESP32 samo neukončí spojení
+                while ble_client.is_connected:
+                    await asyncio.sleep(0.5)
+
+        except Exception as e:
+            print(f"Pokus o spojení selhal: {e}")
+            client.publish(TOPIC_STATUS, "SLEEP", retain=True)
+            await asyncio.sleep(1)
 
 if __name__ == "__main__":
     try:
