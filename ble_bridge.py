@@ -1,10 +1,10 @@
 import asyncio
-from bleak import BleakClient
+from bleak import BleakClient, BleakScanner
 import paho.mqtt.client as mqtt
 import sys
 
 # ==========================================
-# CÍLOVÁ MAC ADRESA (Potvrzená)
+# CÍLOVÁ MAC ADRESA
 TARGET_MAC = "10:06:1C:B5:A7:36"
 # ==========================================
 
@@ -34,17 +34,14 @@ def publish_status(status):
 
 def notification_handler(sender, data):
     command = data.decode('utf-8').strip()
-    print(f"Přijato z BLE: {command}")
     client.publish(MQTT_TOPIC, command)
 
-def disconnected_callback(client_ble):
-    pass # Odpojení řešíme v hlavní smyčce, zamezuje spamu z Linuxu
-
-# ASYNCHRONNÍ exekuce systémových příkazů (Nezmrazí Python smyčku!)
-async def run_bt_cmd(*args):
+async def kill_ghost_connection():
+    """Tento buldozer okamžitě smaže zaseknuté spojení z paměti Linuxu, 
+       aby bylo RPi připraveno na další bleskové připojení."""
     try:
         proc = await asyncio.create_subprocess_exec(
-            'bluetoothctl', *args,
+            'bluetoothctl', 'disconnect', TARGET_MAC,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL
         )
@@ -53,55 +50,43 @@ async def run_bt_cmd(*args):
         pass
 
 async def connect_and_listen():
-    print(f"--- SPUŠTĚN ČISTÝ (INDEXOVÝ) REŽIM NA {TARGET_MAC} ---")
+    print(f"--- SPUŠTĚN BLESKOVÝ REŽIM NA {TARGET_MAC} ---")
     publish_status("SLEEP")
+    
+    # Pro jistotu vyčistíme porty hned po startu skriptu
+    await kill_ghost_connection()
     
     while True:
         try:
-            # NATIVNÍ PŘIPOJENÍ BEZ SKENERU
-            async with BleakClient(TARGET_MAC, disconnected_callback=disconnected_callback, timeout=6.0) as client_ble:
+            # 1. Tichá a neviditelná smyčka - čekáme, až se ovladač objeví ve vzduchu
+            device = None
+            while not device:
+                device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=3.0)
+            
+            publish_status("CONNECTING")
+            
+            # 2. Okamžité připojení
+            async with BleakClient(device, timeout=7.0) as client_ble:
                 publish_status("READY") 
-                print("+++ PŘIPOJENO! Ovladač je aktivní. +++")
+                print("\n+++ PŘIPOJENO! Ovladač je aktivní. +++")
                 
                 await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
                 
-                # Udržujeme spojení, dokud pacient neustane v činnosti a ESP32 samo neusne
+                # Držíme spojení
                 while client_ble.is_connected:
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.2)
             
-            # Zde jsme, pokud se ESP32 korektně odpojilo (usnulo)
-            print("--- Spojení ukončeno (ovladač usnul) ---")
+            # 3. Jakmile se ESP32 uspí, jdeme okamžitě uklízet
+            print("--- Ovladač usnul ---")
             publish_status("SLEEP")
+            await kill_ghost_connection() # ZABITÍ DUCHA
+            
+        except Exception:
+            # Pokud dojde k jakékoliv chybě (např. In Progress), 
+            # nevyplivneme chybu do terminálu, ale rovnou vyčistíme port.
+            publish_status("SLEEP")
+            await kill_ghost_connection()
             await asyncio.sleep(0.5)
-            
-        except Exception as e:
-            # Očistíme text výjimky od případných bílých znaků
-            error_msg = str(e).strip()
-            
-            # 1. TICHÁ ABSORPCE: Běžné stavy (spánek, prázdné výpisy při odpojení)
-            # Zde zachytíme i ten tvůj prázdný výpis (kdy error_msg == "")
-            if not error_msg or "was not found" in error_msg or "Device with address" in error_msg or "EOFError" in error_msg or "disconnected" in error_msg.lower():
-                publish_status("SLEEP")
-                await asyncio.sleep(0.5)
-                continue
-            
-            # 2. IN PROGRESS: Není to chyba, Linux zrovna fyzicky navazuje spojení.
-            if "In Progress" in error_msg:
-                publish_status("CONNECTING") 
-                await asyncio.sleep(0.5)
-                continue
-            
-            # 3. ZRUŠENO SYSTÉMEM: Linux proces zařízl, musíme porty vyčistit.
-            if "br-connection-canceled" in error_msg or "discover services" in error_msg:
-                publish_status("CONNECTING")
-                await run_bt_cmd('disconnect', TARGET_MAC)
-                await asyncio.sleep(1.0)
-                continue
-            
-            # Ostatní skutečné a nečekané chyby
-            print(f"   [Drobný šum v Linuxu] {error_msg}")
-            publish_status("SLEEP")
-            await asyncio.sleep(1.0)
 
 if __name__ == "__main__":
     try:
