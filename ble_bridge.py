@@ -42,42 +42,51 @@ async def connect_and_listen():
     
     while True:
         try:
-            # 1. Použijeme krátký skener (2 vteřiny). 
-            # Je to nutné, aby Linux nenačítal mrtvá spojení ze své zablokované paměti.
-            device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=2.0)
+            # 1. Použijeme krátký skener
+            device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=3.0)
             
             if device:
-                print("Nalezeno! Navazuji spojení...")
+                print("Nalezeno! Dávám Bluetooth modulu 1 vteřinu na přípravu...")
+                # ZLATÉ PRAVIDLO: Po skenování nesmíme na Linux tlačit okamžitě. 
+                # Tato pauza zabrání chybám 'br-connection-canceled' a 'failed to discover services'
+                await asyncio.sleep(1.0)
+                
                 publish_status("CONNECTING")
                 
-                # 2. Připojíme se přímo k zachycenému 'device' (nejodolnější metoda)
-                async with BleakClient(device, disconnected_callback=disconnected_callback) as client_ble:
+                # 2. Připojíme se
+                async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=10.0) as client_ble:
                     print("+++ PŘIPOJENO! Ovladač je aktivní. +++")
                     publish_status("READY") 
                     
                     await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
                     
-                    # Dokud spojení běží, jsme v této smyčce
                     while client_ble.is_connected:
                         await asyncio.sleep(0.5)
                 
-                # 3. ZLATÉ PRAVIDLO LINUXU:
-                # Sem se kód dostane, když se ESP32 odpojí. 
-                # Abychom se vyhnuli chybě 'br-connection-canceled', 
-                # MUSÍME dát Bluetooth modulu chvíli na uzavření starých procesů.
+                # 3. Odpojení
                 print("Dávám systému 1.5 vteřiny na vyčištění socketů...")
                 await asyncio.sleep(1.5)
                 
             else:
-                # Joystick zrovna spí, nebudeme spamovat a chvíli počkáme
                 await asyncio.sleep(0.5)
                 
         except Exception as e:
-            print(f"Výpadek: {e}")
-            # Záchranná síť: Pokud i tak BlueZ vyhodí "In Progress" nebo jinou chybu,
-            # nesmíme na něj tlačit dalším pokusem. Necháme ho 2 vteřiny "vydechnout".
-            print("Přetížení modulu! Uklidňuji systém na 2 vteřiny...")
-            await asyncio.sleep(2.0)
+            error_msg = str(e)
+            print(f"Výpadek: {error_msg}")
+            
+            # Pokud se BlueZ zasekne na inicializaci, pročistíme ho skrytým systémovým příkazem
+            if "br-connection-canceled" in error_msg or "In Progress" in error_msg or "discover services" in error_msg:
+                print("!!! Zjištěn zásek Linuxu. Čistím a čekám 2 vteřiny...")
+                # Asynchronní vyčištění, aby to nezablokovalo náš Python skript
+                proc = await asyncio.create_subprocess_exec(
+                    'bluetoothctl', 'disconnect', TARGET_MAC,
+                    stdout=asyncio.subprocess.DEVNULL, 
+                    stderr=asyncio.subprocess.DEVNULL
+                )
+                await proc.wait()
+                await asyncio.sleep(2.0)
+            else:
+                await asyncio.sleep(1.0)
 
 if __name__ == "__main__":
     try:
