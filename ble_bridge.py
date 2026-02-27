@@ -1,21 +1,18 @@
 import asyncio
-from bleak import BleakClient, BleakError
+from bleak import BleakClient, BleakScanner
 import paho.mqtt.client as mqtt
 import sys
 
 # ==========================================
-# OPRAVA: Změněno z 36 zpět na správnou MAC 34!
-TARGET_MAC = "10:06:1C:B5:A7:34"
+# ODSTRANĚNA MAC ADRESA! 
+# Systém si ovladač najde sám podle názvu "ESP-JOY"
 # ==========================================
 
 UART_TX_CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
-
-# MQTT Konfigurace
 MQTT_BROKER = "localhost"
 MQTT_TOPIC = "joystick/command"
-TOPIC_STATUS = "joystick/status"
+TOPIC_STATUS = "joystick/status" 
 
-# --- MQTT SETUP ---
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 try:
@@ -26,57 +23,58 @@ except Exception as e:
     print(f"Chyba MQTT: {e}")
     sys.exit(1)
 
-# --- POMOCNÉ FUNKCE ---
-
 def publish_status(status):
-    """Odeslání stavu do MQTT (retain=True aby si to web načetl i po refresh)"""
     print(f"STAV -> {status}") 
     client.publish(TOPIC_STATUS, status, retain=True)
 
 def notification_handler(sender, data):
-    """Zpracování dat přijatých z ESP32."""
     command = data.decode('utf-8').strip()
     print(f"Přijato z BLE: {command}")
     client.publish(MQTT_TOPIC, command)
 
 def disconnected_callback(client):
-    """Zavolá se, když se ESP32 odpojí (usne)."""
     print(">>> Ztráta spojení (Joystick usnul nebo je mimo dosah).")
     publish_status("SLEEP")
 
-# --- HLAVNÍ SMYČKA PRO PŘIPOJENÍ ---
+# Filtr pro nalezení ESP32 podle jména
+def is_esp_joy(device, adv_data):
+    if device.name and "ESP-JOY" in device.name:
+        return True
+    if adv_data.local_name and "ESP-JOY" in adv_data.local_name:
+        return True
+    return False
 
 async def connect_and_listen():
-    print(f"--- SPUŠTĚN DIRECT CONNECT NA {TARGET_MAC} ---")
+    print("--- SPUŠTĚNO AUTODETEKČNÍ HLEDÁNÍ OVLADAČE 'ESP-JOY' ---")
     publish_status("SLEEP")
     
     while True:
         try:
-            print(f"Čekám na probuzení joysticku ({TARGET_MAC})...")
+            print("Skener: Čekám na probuzení joysticku ve vzduchu...")
             
-            # OPRAVA: Snížen timeout z 15.0 na 3.0 sekundy!
-            # Díky tomu malina nečeká 15 vteřin na chybu, když ESP32 zrovna spí, 
-            # ale zkouší to mnohem rychleji znovu a znovu.
-            async with BleakClient(TARGET_MAC, disconnected_callback=disconnected_callback, timeout=3.0) as client_ble:
+            # Skener běží 3 vteřiny a hledá cokoliv s názvem ESP-JOY
+            device = await BleakScanner.find_device_by_filter(is_esp_joy, timeout=3.0)
+            
+            if not device:
+                # Nic jsme nenašli, jdeme hledat znovu (rychlá smyčka)
+                continue
                 
-                # Pokud jsme se dostali sem, handshaking začal
-                publish_status("CONNECTING") 
-                print("Navazuji spojení...")
-                
-                # Zapneme notifikace
-                await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
-                
-                print("PŘIPOJENO! Ovladač je aktivní.")
+            print(f">>> NALEZENO! Adresa: {device.address} (Síla signálu: {device.rssi} dBm) <<<")
+            publish_status("CONNECTING") 
+            
+            # Připojujeme se přímo přes NALEZENÝ OBJEKT (Nejstabilnější metoda pro Linux)
+            async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=5.0) as client_ble:
+                print("+++ PŘIPOJENO! Ovladač je aktivní. +++")
                 publish_status("READY") 
                 
-                # Smyčka udržující spojení
+                await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
+                
+                # Udržujeme spojení, dokud ho ESP32 (po 15s) samo neukončí
                 while client_ble.is_connected:
                     await asyncio.sleep(0.5)
             
-            # Zde se kód dostane po odpojení
-            
         except Exception as e:
-            # Pokud se připojení nepovede (joystick spí), chvíli počkáme a zkusíme znovu.
+            # Tichý restart smyčky při případné kolizi na Bluetooth
             await asyncio.sleep(0.2)
 
 if __name__ == "__main__":
