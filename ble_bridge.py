@@ -1,11 +1,10 @@
 import asyncio
-from bleak import BleakClient
+from bleak import BleakClient, BleakScanner
 import paho.mqtt.client as mqtt
 import sys
-import subprocess
 
 # ==========================================
-# CÍLOVÁ MAC ADRESA (Nyní 100% potvrzená)
+# CÍLOVÁ MAC ADRESA (Potvrzená)
 TARGET_MAC = "10:06:1C:B5:A7:36"
 # ==========================================
 
@@ -34,46 +33,51 @@ def notification_handler(sender, data):
     client.publish(MQTT_TOPIC, command)
 
 def disconnected_callback(client):
-    print(">>> Ztráta spojení (Joystick usnul nebo je mimo dosah).")
+    print(">>> Ztráta spojení (Joystick usnul nebo byl výpadek).")
     publish_status("SLEEP")
 
 async def connect_and_listen():
-    print(f"--- SPUŠTĚNO RYCHLÉ PŘÍMÉ PŘIPOJOVÁNÍ NA {TARGET_MAC} ---")
+    print(f"--- SPUŠTĚN STABILNÍ REŽIM PŘIPOJOVÁNÍ NA {TARGET_MAC} ---")
     publish_status("SLEEP")
     
     while True:
         try:
-            # PŘÍMÉ PŘIPOJENÍ (Direct Connect) - Zahozen pomalý skener!
-            # Timeout 3.0s: Pokud joystick spí, malina to zjistí za 3 vteřiny a zkusí to znovu.
-            # Jakmile se joystick probudí, malina ho chytí prakticky okamžitě.
-            async with BleakClient(TARGET_MAC, disconnected_callback=disconnected_callback, timeout=3.0) as client_ble:
-                
+            # 1. Použijeme krátký skener (2 vteřiny). 
+            # Je to nutné, aby Linux nenačítal mrtvá spojení ze své zablokované paměti.
+            device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=2.0)
+            
+            if device:
+                print("Nalezeno! Navazuji spojení...")
                 publish_status("CONNECTING")
-                print("+++ PŘIPOJENO! Ovladač je aktivní. +++")
-                publish_status("READY") 
                 
-                # Zapneme příjem zpráv z joysticku
-                await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
+                # 2. Připojíme se přímo k zachycenému 'device' (nejodolnější metoda)
+                async with BleakClient(device, disconnected_callback=disconnected_callback) as client_ble:
+                    print("+++ PŘIPOJENO! Ovladač je aktivní. +++")
+                    publish_status("READY") 
+                    
+                    await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
+                    
+                    # Dokud spojení běží, jsme v této smyčce
+                    while client_ble.is_connected:
+                        await asyncio.sleep(0.5)
                 
-                # Udržujeme spojení, dokud se ovladač sám neuspí
-                while client_ble.is_connected:
-                    await asyncio.sleep(0.5)
-            
+                # 3. ZLATÉ PRAVIDLO LINUXU:
+                # Sem se kód dostane, když se ESP32 odpojí. 
+                # Abychom se vyhnuli chybě 'br-connection-canceled', 
+                # MUSÍME dát Bluetooth modulu chvíli na uzavření starých procesů.
+                print("Dávám systému 1.5 vteřiny na vyčištění socketů...")
+                await asyncio.sleep(1.5)
+                
+            else:
+                # Joystick zrovna spí, nebudeme spamovat a chvíli počkáme
+                await asyncio.sleep(0.5)
+                
         except Exception as e:
-            error_msg = str(e)
-            
-            # Nebudeme spamovat terminál chybou "Device not found" (když joystick běžně spí)
-            if "was not found" not in error_msg and "EOFError" not in error_msg:
-                print(f"Drobný výpadek spojení: {error_msg}")
-            
-            # Záchranná brzda: Pokud se BlueZ zasekne na starém pokusu, pročistíme to
-            if "In Progress" in error_msg or "br-connection-canceled" in error_msg:
-                print("!!! Zjištěno zaseknutí modulu. Čistím Linuxovou paměť...")
-                subprocess.run(["bluetoothctl", "disconnect", TARGET_MAC], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                await asyncio.sleep(1.0)
-            
-            # Krátká pauza před dalším pokusem
-            await asyncio.sleep(0.5)
+            print(f"Výpadek: {e}")
+            # Záchranná síť: Pokud i tak BlueZ vyhodí "In Progress" nebo jinou chybu,
+            # nesmíme na něj tlačit dalším pokusem. Necháme ho 2 vteřiny "vydechnout".
+            print("Přetížení modulu! Uklidňuji systém na 2 vteřiny...")
+            await asyncio.sleep(2.0)
 
 if __name__ == "__main__":
     try:
