@@ -2,10 +2,12 @@ import asyncio
 from bleak import BleakClient, BleakScanner
 import paho.mqtt.client as mqtt
 import sys
+import subprocess
 
 # ==========================================
-# CÍLOVÁ MAC ADRESA
-TARGET_MAC = "10:06:1C:B5:A7:34"
+# CÍLOVÁ MAC ADRESA PRO BLUETOOTH
+# (Bluetooth MAC je u ESP32 vždy o +2 vyšší než Wi-Fi MAC. Wi-Fi byla 34, takže BLE je 36)
+TARGET_MAC = "10:06:1C:B5:A7:36"
 # ==========================================
 
 UART_TX_CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
@@ -49,7 +51,7 @@ async def connect_and_listen():
             target_device = None
             target_rssi = None
             
-            # Zkusíme v nich najít náš ovladač (buď podle MAC, nebo podle jména)
+            # Najdeme náš ovladač (buď podle jména nebo podle MAC)
             for address, (d, adv) in devices_dict.items():
                 if d.address.lower() == TARGET_MAC.lower() or (d.name and "ESP-JOY" in d.name):
                     target_device = d
@@ -57,35 +59,40 @@ async def connect_and_listen():
                     break
             
             if not target_device:
-                print("\n--- DIAGNOSTIKA: Náš ovladač nenalezen. Co malina vlastně vidí? ---")
-                if len(devices_dict) == 0:
-                    print("!!! RPi nevidí VŮBEC NIC. Zřejmě je zablokovaný Bluetooth modul.")
-                    print("!!! Zkuste v terminálu: sudo systemctl restart bluetooth")
-                else:
-                    print(f"RPi vidí celkem {len(devices_dict)} jiných zařízení:")
-                    for address, (d, adv) in devices_dict.items():
-                        # Vypíšeme nalezená zařízení pro kontrolu
-                        name = d.name if d.name else "Neznámé zařízení"
-                        print(f" - Jméno: {name} | MAC: {d.address} | RSSI: {adv.rssi} dBm")
-                print("-------------------------------------------------------------------")
-                await asyncio.sleep(2.0)
+                print("Zařízení nenalezeno, zkouším to znovu...")
+                await asyncio.sleep(1.0)
                 continue
                 
             print(f"\n>>> NALEZENO NÁŠ OVLADAČ! (Jméno: {target_device.name}, MAC: {target_device.address}, RSSI: {target_rssi} dBm) <<<")
             publish_status("CONNECTING") 
             
+            # WORKAROUND PRO RASPBERRY PI ("In Progress" bug):
+            # Musíme dát Bluetooth modulu chvíli oddech po skenování, než navážeme spojení.
+            print("Dávám modulu vteřinu na oddech před spojením...")
+            await asyncio.sleep(1.0)
+            
             async with BleakClient(target_device, disconnected_callback=disconnected_callback, timeout=10.0) as client_ble:
                 print("+++ PŘIPOJENO! Ovladač je aktivní. +++")
                 publish_status("READY") 
                 
+                # Zapneme příjem zpráv z joysticku
                 await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
                 
+                # Udržujeme spojení dokud se ovladač po 15 vteřinách nečinnosti sám neuspí
                 while client_ble.is_connected:
                     await asyncio.sleep(0.5)
             
         except Exception as e:
-            print(f"Chyba při komunikaci: {e}")
-            await asyncio.sleep(1.0)
+            error_msg = str(e)
+            print(f"Chyba při komunikaci: {error_msg}")
+            
+            # Pokud se BlueZ zasekne, provedeme tvrdý restart konkrétního spojení v Linuxu
+            if "In Progress" in error_msg or "br-connection-canceled" in error_msg:
+                print("!!! Zjištěno zaseknutí (In Progress). Provádím tvrdý úklid...")
+                subprocess.run(["bluetoothctl", "disconnect", TARGET_MAC], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                await asyncio.sleep(2.0)
+            else:
+                await asyncio.sleep(1.0)
 
 if __name__ == "__main__":
     try:
