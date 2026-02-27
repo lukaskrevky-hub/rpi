@@ -8,10 +8,9 @@ MQTT_TOPIC = "joystick/command"
 TOPIC_STATUS = "joystick/status"
 CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
-# SPRÁVNÁ MAC ADRESA ESP32
+# TVOJE MAC ADRESA
 TARGET_MAC = "10:06:1C:B5:A7:34"
 
-# --- MQTT Setup ---
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 try:
     client.connect(MQTT_BROKER, 1883, 60)
@@ -20,63 +19,49 @@ except Exception as e:
     print(f"Chyba MQTT: {e}")
     sys.exit(1)
 
+# Globální event pro detekci odpojení
+disconnect_event = asyncio.Event()
+
 def notification_handler(sender, data):
     cmd = data.decode('utf-8')
     print(f"PŘIJATO BLE: {cmd}")
     client.publish(MQTT_TOPIC, cmd)
 
+def handle_disconnect(client_instance):
+    print("!!! ESP32 SE ODPOJILO (nebo usnulo) !!!")
+    # Okamžitě pošleme na web, že zařízení spí
+    client.publish(TOPIC_STATUS, "SLEEP", retain=True)
+    # Odblokujeme smyčku, aby malina začala znovu skenovat
+    disconnect_event.set()
+
 async def main():
-    print(f"Startuji obrněný odposlech pro MAC: {TARGET_MAC}...")
-    
-    # OPRAVA: Na začátku pošleme webu, že systém SPÍ (ne že je připravený!)
+    print(f"Startuji profi skener pro MAC: {TARGET_MAC}...")
     client.publish(TOPIC_STATUS, "SLEEP", retain=True)
 
     while True:
         try:
-            print("Poslouchám vzduch a čekám na záblesk z ESP32...")
-            client.publish(TOPIC_STATUS, "SLEEP", retain=True)
+            print("\nHledám ESP32 (Čekám na probuzení)...")
             
-            # Speciální proměnná (událost), která se sepne, až ESP32 uslyšíme
-            found_event = asyncio.Event()
-            target_device = None
+            # Jednoduché a spolehlivé hledání (Timeout 5 vteřin, pak zkusí znovu)
+            device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=5.0)
 
-            # Funkce, která zachytává VŠECHNO, co letí vzduchem
-            def detection_callback(device, advertisement_data):
-                nonlocal target_device
-                # Porovnáváme MAC adresy bez ohledu na velká/malá písmena
-                if device.address.lower() == TARGET_MAC.lower():
-                    target_device = device
-                    found_event.set() # ZASÁH! Zastavujeme hledání
-
-            scanner = BleakScanner(detection_callback)
-            await scanner.start()
-            
-            try:
-                # Čekáme donekonečna, dokud se událost nesepne (až pohneš páčkou)
-                await found_event.wait()
-            finally:
-                await scanner.stop()
-
-            if target_device:
-                print(">>> ESP32 zachyceno na radaru! Jdu se připojit... <<<")
-                client.publish(TOPIC_STATUS, "CONNECTING", retain=True)
+            if device:
+                print(">>> ESP32 NALEZENO! Připojuji se... <<<")
+                disconnect_event.clear()
                 
-                # Připojujeme se přímo přes objekt zařízení (100% spolehlivé)
-                async with BleakClient(target_device, timeout=10.0) as ble_client:
-                    print("+++ ÚSPĚŠNĚ PŘIPOJENO! +++")
+                # Připojíme se a nastavíme CALLBACK pro okamžité zjištění odpojení
+                async with BleakClient(device, disconnected_callback=handle_disconnect) as ble_client:
+                    print("+++ SPOJENO! Systém je AKTIVNÍ +++")
                     client.publish(TOPIC_STATUS, "READY", retain=True)
                     
                     await ble_client.start_notify(CHAR_UUID, notification_handler)
                     
-                    # Dokud je spojení aktivní, držíme ho
-                    while ble_client.is_connected:
-                        await asyncio.sleep(0.5)
-                        
-                    print("--- Ovladač se uspal a odpojil. ---")
-            
+                    # Program se zde zastaví a čeká, dokud ESP32 neukončí spojení
+                    await disconnect_event.wait()
+                    
         except Exception as e:
-            print(f"Spojení selhalo nebo spadlo: {e}")
-            await asyncio.sleep(1)
+            # Tiché ignorování chyb (např. ESP32 zrovna nevysílá)
+            await asyncio.sleep(0.5)
 
 if __name__ == "__main__":
     try:
