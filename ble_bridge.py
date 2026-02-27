@@ -38,7 +38,7 @@ def notification_handler(sender, data):
 
 async def kill_ghost_connection():
     """Tento buldozer okamžitě smaže zaseknuté spojení z paměti Linuxu, 
-       aby bylo RPi připraveno na další bleskové připojení."""
+       aby bylo RPi připraveno na další připojení."""
     try:
         proc = await asyncio.create_subprocess_exec(
             'bluetoothctl', 'disconnect', TARGET_MAC,
@@ -50,7 +50,7 @@ async def kill_ghost_connection():
         pass
 
 async def connect_and_listen():
-    print(f"--- SPUŠTĚN BLESKOVÝ REŽIM NA {TARGET_MAC} ---")
+    print(f"--- SPUŠTĚN STABILIZOVANÝ REŽIM NA {TARGET_MAC} ---")
     publish_status("SLEEP")
     
     # Pro jistotu vyčistíme porty hned po startu skriptu
@@ -64,9 +64,14 @@ async def connect_and_listen():
                 device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=3.0)
             
             publish_status("CONNECTING")
+            print(">>> Ovladač nalezen. Dávám modulu 1 vteřinu na oddech...")
             
-            # 2. Okamžité připojení
-            async with BleakClient(device, timeout=7.0) as client_ble:
+            # ZLATÁ PAUZA: Nutná pro BlueZ modul v Linuxu. Bez ní se spojení
+            # zhroutí ihned po skenování (vyhodí br-connection-canceled).
+            await asyncio.sleep(1.0)
+            
+            # 2. Připojení k nalezenému objektu
+            async with BleakClient(device, timeout=10.0) as client_ble:
                 publish_status("READY") 
                 print("\n+++ PŘIPOJENO! Ovladač je aktivní. +++")
                 
@@ -74,19 +79,24 @@ async def connect_and_listen():
                 
                 # Držíme spojení
                 while client_ble.is_connected:
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.5)
             
             # 3. Jakmile se ESP32 uspí, jdeme okamžitě uklízet
             print("--- Ovladač usnul ---")
             publish_status("SLEEP")
-            await kill_ghost_connection() # ZABITÍ DUCHA
+            await kill_ghost_connection()
+            await asyncio.sleep(1.0)
             
-        except Exception:
-            # Pokud dojde k jakékoliv chybě (např. In Progress), 
-            # nevyplivneme chybu do terminálu, ale rovnou vyčistíme port.
+        except Exception as e:
+            error_msg = str(e)
+            
+            # Vrátili jsme výpis chyb, abychom nebyli "slepí"
+            if "was not found" not in error_msg:
+                print(f"   [Chyba spojení] {error_msg}")
+                
             publish_status("SLEEP")
             await kill_ghost_connection()
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.0)
 
 if __name__ == "__main__":
     try:
