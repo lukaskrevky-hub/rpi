@@ -1,10 +1,10 @@
 import asyncio
-from bleak import BleakClient, BleakScanner, BleakError
+from bleak import BleakClient, BleakError
 import paho.mqtt.client as mqtt
 import sys
 
 # ==========================================
-# OPRAVA: SPRÁVNÁ MAC ADRESA (končí 34)
+# OPRAVA: Změněno z 36 zpět na správnou MAC 34!
 TARGET_MAC = "10:06:1C:B5:A7:34"
 # ==========================================
 
@@ -13,7 +13,7 @@ UART_TX_CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 # MQTT Konfigurace
 MQTT_BROKER = "localhost"
 MQTT_TOPIC = "joystick/command"
-TOPIC_STATUS = "joystick/status" 
+TOPIC_STATUS = "joystick/status"
 
 # --- MQTT SETUP ---
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
@@ -29,7 +29,7 @@ except Exception as e:
 # --- POMOCNÉ FUNKCE ---
 
 def publish_status(status):
-    """Odeslání stavu do MQTT"""
+    """Odeslání stavu do MQTT (retain=True aby si to web načetl i po refresh)"""
     print(f"STAV -> {status}") 
     client.publish(TOPIC_STATUS, status, retain=True)
 
@@ -41,33 +41,27 @@ def notification_handler(sender, data):
 
 def disconnected_callback(client):
     """Zavolá se, když se ESP32 odpojí (usne)."""
-    print(">>> Ztráta spojení (Joystick usnul).")
+    print(">>> Ztráta spojení (Joystick usnul nebo je mimo dosah).")
     publish_status("SLEEP")
 
 # --- HLAVNÍ SMYČKA PRO PŘIPOJENÍ ---
 
 async def connect_and_listen():
-    print(f"--- SPUŠTĚN SKENER A CONNECT NA {TARGET_MAC} ---")
+    print(f"--- SPUŠTĚN DIRECT CONNECT NA {TARGET_MAC} ---")
     publish_status("SLEEP")
     
     while True:
         try:
-            print(f"Hledám signál z joysticku ({TARGET_MAC})...")
+            print(f"Čekám na probuzení joysticku ({TARGET_MAC})...")
             
-            # KOMUNITNÍ ŘEŠENÍ (Best Practice): 
-            # Nejdříve fyzicky najdeme zařízení ve vzduchu pomocí skeneru.
-            # Tím obejdeme zaseknutou BlueZ mezipaměť (cache) v Linuxu.
-            device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=5.0)
-            
-            if not device:
-                # Zařízení spí, skener nic neslyšel, jedeme znovu
-                continue
+            # OPRAVA: Snížen timeout z 15.0 na 3.0 sekundy!
+            # Díky tomu malina nečeká 15 vteřin na chybu, když ESP32 zrovna spí, 
+            # ale zkouší to mnohem rychleji znovu a znovu.
+            async with BleakClient(TARGET_MAC, disconnected_callback=disconnected_callback, timeout=3.0) as client_ble:
                 
-            print(f"Signál zachycen (RSSI: {device.rssi} dBm)! Navazuji spojení...")
-            publish_status("CONNECTING") 
-            
-            # Předáváme zjištěný fyzický OBJEKT (device), nikoliv jen textovou MAC adresu
-            async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=5.0) as client_ble:
+                # Pokud jsme se dostali sem, handshaking začal
+                publish_status("CONNECTING") 
+                print("Navazuji spojení...")
                 
                 # Zapneme notifikace
                 await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
@@ -75,16 +69,15 @@ async def connect_and_listen():
                 print("PŘIPOJENO! Ovladač je aktivní.")
                 publish_status("READY") 
                 
-                # Udržujeme spojení
+                # Smyčka udržující spojení
                 while client_ble.is_connected:
                     await asyncio.sleep(0.5)
             
             # Zde se kód dostane po odpojení
             
         except Exception as e:
-            # Rychlý spánek a nový pokus, pokud ESP zrovna nebylo dostupné nebo signál zarušila Wi-Fi
-            print(f"Chyba při spojení: {e}")
-            await asyncio.sleep(0.5)
+            # Pokud se připojení nepovede (joystick spí), chvíli počkáme a zkusíme znovu.
+            await asyncio.sleep(0.2)
 
 if __name__ == "__main__":
     try:
