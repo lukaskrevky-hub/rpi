@@ -24,86 +24,94 @@ except Exception as e:
     print(f"Chyba MQTT: {e}")
     sys.exit(1)
 
+# Globální paměť pro zamezení duplicitních výpisů (Filtrace šumu)
+current_status = ""
+
 def publish_status(status):
-    print(f"STAV -> {status}") 
-    client.publish(TOPIC_STATUS, status, retain=True)
+    global current_status
+    # Zprávu odešleme pouze tehdy, pokud se stav SKUTEČNĚ změnil
+    if current_status != status:
+        print(f"STAV -> {status}") 
+        client.publish(TOPIC_STATUS, status, retain=True)
+        current_status = status
 
 def notification_handler(sender, data):
     command = data.decode('utf-8').strip()
     print(f"Přijato z BLE: {command}")
     client.publish(MQTT_TOPIC, command)
 
-def disconnected_callback(client):
-    print(">>> Ztráta spojení (Joystick usnul nebo byl výpadek).")
+def disconnected_callback(client_ble):
+    # Callback se v Linuxu často zblázní a volá se 10x po sobě. 
+    # Díky naší funkci publish_status se ale vypíše jen jednou.
     publish_status("SLEEP")
 
 async def connect_and_listen():
-    print(f"--- SPUŠTĚN REŽIM PŘIPOJOVÁNÍ NA {TARGET_MAC} ---")
+    print(f"--- SPUŠTĚN OPTIMALIZOVANÝ REŽIM PŘIPOJOVÁNÍ NA {TARGET_MAC} ---")
     publish_status("SLEEP")
     
     consecutive_errors = 0
     
     while True:
         try:
-            # 1. Hledáme ovladač ve vzduchu (obcházíme paměťovou cache Linuxu)
-            device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=3.0)
+            # 1. Hledáme ovladač ve vzduchu (slouží jen jako rychlý radar)
+            device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=2.0)
             
             if device:
-                print(">>> Ovladač nalezen ve vzduchu! <<<")
-                
-                # ZLATÉ PRAVIDLO: Po skenování potřebuje BlueZ modul vteřinu na oddech,
-                # jinak spojení okamžitě spadne na 'br-connection-canceled'.
-                await asyncio.sleep(1.0) 
-                
                 publish_status("CONNECTING")
                 
-                # 2. Klasické obousměrné spojení (požadavek vedoucího)
-                # Timeout nastaven na 10 sekund pro dostatek času na načtení služeb
-                async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=10.0) as client_ble:
-                    print("+++ PŘIPOJENO! Ovladač je aktivní. +++")
+                # 2. Okamžité připojení! 
+                # Předáváme přímo TARGET_MAC místo objektu 'device', což na RPi eliminuje chybu "discover services"
+                async with BleakClient(TARGET_MAC, disconnected_callback=disconnected_callback, timeout=6.0) as client_ble:
+                    
                     publish_status("READY") 
+                    print("+++ PŘIPOJENO! Ovladač je aktivní. +++")
                     consecutive_errors = 0 # Úspěšné spojení = nulujeme chyby
                     
-                    # Registrace příjmu dat
                     await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
                     
-                    # Držíme spojení aktivní (dokud se ovladač sám neuspí)
                     while client_ble.is_connected:
                         await asyncio.sleep(0.5)
                 
-                # Pokud se dostaneme sem, spojení bylo korektně ukončeno (ESP32 usnulo)
-                print("Spojení korektně ukončeno. Čekám na uvolnění portů...")
-                await asyncio.sleep(1.0)
+                # Po korektním odpojení
+                print("Spojení korektně ukončeno.")
+                publish_status("SLEEP")
+                await asyncio.sleep(0.5)
                 
             else:
-                # Ovladač zrovna spí, nebudeme spamovat konzoli
-                await asyncio.sleep(0.5)
+                # Ovladač zrovna spí, pošleme SLEEP (vypíše se jen pokud se stav změnil)
+                publish_status("SLEEP")
+                await asyncio.sleep(0.2)
                 
         except Exception as e:
             error_msg = str(e)
-            print(f"Výpadek spojení: {error_msg}")
             
-            # Pokud se BlueZ zasekne na "In Progress" (typický neduh RPi), 
-            # odstřelíme konkrétní zaseknuté spojení z mezipaměti.
+            # Nebudeme spamovat terminál drobnými chybami
+            if "was not found" not in error_msg and "EOFError" not in error_msg:
+                print(f"Výpadek spojení: {error_msg}")
+            
+            publish_status("SLEEP")
+            
+            # Rychlý úklid po zablokovaném spojení
             if "In Progress" in error_msg or "br-connection-canceled" in error_msg:
-                print("Uklízím zablokovanou paměť Bluetooth modulu...")
                 subprocess.run(['bluetoothctl', 'disconnect', TARGET_MAC], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                await asyncio.sleep(2.0)
+                await asyncio.sleep(0.5)
                 consecutive_errors += 1
+            elif "discover services" in error_msg:
+                # Pokud načítání služeb spadne, zkusíme to hned znovu, ESP32 má 30s timeout
+                await asyncio.sleep(0.2)
             else:
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(0.5)
             
-            # Pokud se systém zacyklí úplně, provedeme "tvrdý" restart rádiového adaptéru
+            # Tvrdý restart adaptéru při velkém zacyklení
             if consecutive_errors >= 4:
                 print("!!! BlueZ modul je tvrdě zacyklený. Provádím restart napájení Bluetooth...")
                 try:
                     subprocess.run(['bluetoothctl', 'power', 'off'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    await asyncio.sleep(1.5)
+                    await asyncio.sleep(1.0)
                     subprocess.run(['bluetoothctl', 'power', 'on'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    await asyncio.sleep(2.0)
-                except Exception as ex:
-                    print(f"Nepodařilo se restartovat Bluetooth: {ex}")
-                
+                    await asyncio.sleep(1.5)
+                except Exception:
+                    pass
                 consecutive_errors = 0
 
 if __name__ == "__main__":
