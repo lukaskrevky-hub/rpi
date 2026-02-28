@@ -39,26 +39,32 @@ def disconnected_callback(client_ble):
     pass # Ignorujeme spam z Linuxu, stav vyřeší smyčka níže
 
 async def connect_and_listen():
-    print(f"--- SPUŠTĚN SNIPER REŽIM 2.0 (ČISTÁ DATA) NA {TARGET_MAC} ---")
+    print(f"--- SPUŠTĚN SNIPER REŽIM 3.0 (FILTR DUCHŮ) NA {TARGET_MAC} ---")
     publish_status("SLEEP")
     
     while True:
         try:
             device_event = asyncio.Event()
             target_device = None
+            packet_count = 0  # Investiční indikátor: Potvrzení objemem
 
             def detection_callback(device, advertisement_data):
-                nonlocal target_device
-                # Reagujeme POUZE ve chvíli, kdy fyzicky dorazí paket z naší MAC adresy
+                nonlocal target_device, packet_count
                 if device.address.lower() == TARGET_MAC.lower():
-                    target_device = device
-                    device_event.set()
+                    packet_count += 1
+                    # TADY JE TA MAGIE: 
+                    # Cache Linuxu nám podstrčí jen 1 falešný (starý) paket.
+                    # Živé ESP32 jich ale do vzduchu střílí několik za vteřinu.
+                    # Počkáme si na 3. paket. Tím máme absolutní jistotu, že je signál čerstvý a živý.
+                    if packet_count >= 3:
+                        target_device = device
+                        device_event.set()
 
-            # 1. Nasloucháme POUZE živým datům, ignorujeme Linuxovou mezipaměť (cache)
+            # 1. Nasloucháme anténě a ignorujeme šum z mezipaměti
             async with BleakScanner(detection_callback):
                 await device_event.wait()
                 
-            # Pokud jsme zde, ESP32 fyzicky vyslalo čerstvý paket PRÁVĚ TEĎ.
+            # Pokud jsme zde, ESP32 fyzicky vysílá právě teď.
             publish_status("CONNECTING")
             
             # Mikro-pauza pro bezpečné uvolnění antény po vypnutí skeneru
