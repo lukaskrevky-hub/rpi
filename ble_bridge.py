@@ -1,5 +1,5 @@
 import asyncio
-from bleak import BleakClient
+from bleak import BleakClient, BleakScanner
 import paho.mqtt.client as mqtt
 import sys
 
@@ -39,13 +39,26 @@ def disconnected_callback(client_ble):
     pass # Ignorujeme spam z Linuxu, stav vyřeší smyčka níže
 
 async def connect_and_listen():
-    print(f"--- SPUŠTĚN BLESKOVÝ NATIVNÍ REŽIM NA {TARGET_MAC} ---")
+    print(f"--- SPUŠTĚN BLESKOVÝ REŽIM (S FILTREM DUCHŮ) NA {TARGET_MAC} ---")
     publish_status("SLEEP")
     
     while True:
         try:
-            # Čisté nativní připojení - zkrácený timeout na 1.5s pro okamžitou reakci (HFT režim)
-            async with BleakClient(TARGET_MAC, disconnected_callback=disconnected_callback, timeout=1.5) as client_ble:
+            # 1. Bleskový sken (max 1.0s). 
+            # Pokud ESP32 vysílá, vrátí výsledek OKAMŽITĚ a nečeká!
+            # Tím ověříme, že zařízení fyzicky existuje a vyhneme se Linuxovým falešným spojením.
+            device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=1.0)
+            
+            if not device:
+                # Ovladač opravdu spí, bleskově zkusíme znovu
+                await asyncio.sleep(0.1)
+                continue
+                
+            # Pokud jsme zde, zařízení 100% fyzicky vysílá
+            publish_status("CONNECTING")
+            
+            # 2. Připojujeme se k prověřenému objektu 'device' (NE k textu)
+            async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=5.0) as client_ble:
                 publish_status("READY") 
                 print("\n+++ PŘIPOJENO! Ovladač je aktivní. +++")
                 
@@ -60,16 +73,8 @@ async def connect_and_listen():
             await asyncio.sleep(0.1)
             
         except Exception as e:
-            error_msg = str(e)
-            
-            # Pokud ovladač prostě usnul a nevysílá, zachováme klid
-            if "was not found" in error_msg or "Device with address" in error_msg:
-                # Blesková obrátka - téměř nulové zpoždění před dalším pokusem
-                await asyncio.sleep(0.1)
-            else:
-                # Občasný drobný šum přejdeme tichým připojením
-                publish_status("CONNECTING")
-                await asyncio.sleep(0.5)
+            # Drobný šum ignorujeme a jedeme dál
+            await asyncio.sleep(0.5)
 
 if __name__ == "__main__":
     try:
