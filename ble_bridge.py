@@ -1,4 +1,5 @@
 import asyncio
+import time
 from bleak import BleakClient, BleakScanner
 import paho.mqtt.client as mqtt
 import sys
@@ -39,25 +40,28 @@ def disconnected_callback(client_ble):
     pass # Ignorujeme spam z Linuxu, stav vyřeší smyčka níže
 
 async def connect_and_listen():
-    print(f"--- SPUŠTĚN SNIPER REŽIM 4.0 (ULTRA-FAST RETRY) NA {TARGET_MAC} ---")
+    print(f"--- SPUŠTĚN SNIPER REŽIM 5.0 (ANTI-PHANTOM FILTER) NA {TARGET_MAC} ---")
     publish_status("SLEEP")
     
     while True:
         try:
             device_event = asyncio.Event()
             target_device = None
-            packet_count = 0  # Investiční indikátor: Potvrzení objemem
+            
+            # Časomíra pro odfiltrování staré paměti
+            scanner_start_time = time.time()
 
             def detection_callback(device, advertisement_data):
-                nonlocal target_device, packet_count
+                nonlocal target_device
                 if device.address.lower() == TARGET_MAC.lower():
-                    packet_count += 1
-                    # ZRYCHLENÍ: Stačí nám 2 pakety (1 starý z mezipaměti + 1 prokazatelně čerstvý)
-                    if packet_count >= 2:
+                    # INVESTIČNÍ MAGIE: Ignorujeme "otevírací volatilitu". 
+                    # Všechny pakety, které Linux vyhodí v první vteřině po startu skeneru, 
+                    # jsou prokazatelně jen uložení "duchové" z cache. Čekáme na čerstvá data.
+                    if time.time() - scanner_start_time > 1.0:
                         target_device = device
                         device_event.set()
 
-            # 1. Nasloucháme anténě a ignorujeme šum z mezipaměti
+            # 1. Nasloucháme anténě a bezpečně ignorujeme šum z mezipaměti
             async with BleakScanner(detection_callback):
                 await device_event.wait()
                 
@@ -68,11 +72,9 @@ async def connect_and_listen():
             await asyncio.sleep(0.1)
             
             # 2. Bleskové připojení (s logikou okamžitého opakování)
-            # Zásadní změna: Jakmile víme, že je ovladač vzhůru, nebudeme při drobné 
-            # chybě Linuxu znovu zdlouhavě zapínat skener. Zkusíme to hned znovu!
             for attempt in range(3):
                 try:
-                    async with BleakClient(target_device, disconnected_callback=disconnected_callback, timeout=2.5) as client_ble:
+                    async with BleakClient(target_device, disconnected_callback=disconnected_callback, timeout=3.0) as client_ble:
                         publish_status("READY") 
                         print("\n+++ PŘIPOJENO! Ovladač je aktivní. +++")
                         
@@ -86,8 +88,7 @@ async def connect_and_listen():
                     break # Vyskočíme z opakovací smyčky
                     
                 except Exception as e:
-                    # Pokud připojení spadne (např. br-connection-canceled),
-                    # nepanikaříme a okamžitě pálíme další pokus bez skenování.
+                    # Pokud připojení spadne, okamžitě pálíme další pokus bez skenování
                     if "was not found" in str(e):
                         break # Zařízení už opravdu není v dosahu
                     await asyncio.sleep(0.2)
