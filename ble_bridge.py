@@ -39,13 +39,13 @@ def disconnected_callback(client_ble):
     pass # Ignorujeme spam z Linuxu, stav vyřeší smyčka níže
 
 async def connect_and_listen():
-    print(f"--- SPUŠTĚN NATIVNÍ REŽIM NA {TARGET_MAC} (BEZ WI-FI RUŠENÍ) ---")
+    print(f"--- SPUŠTĚN BLESKOVÝ NATIVNÍ REŽIM NA {TARGET_MAC} ---")
     publish_status("SLEEP")
     
     while True:
         try:
-            # Čisté nativní připojení - Bleak si skenování řeší interně a bleskově
-            async with BleakClient(TARGET_MAC, disconnected_callback=disconnected_callback, timeout=5.0) as client_ble:
+            # Čisté nativní připojení - zkrácený timeout na 1.5s pro okamžitou reakci (HFT režim)
+            async with BleakClient(TARGET_MAC, disconnected_callback=disconnected_callback, timeout=1.5) as client_ble:
                 publish_status("READY") 
                 print("\n+++ PŘIPOJENO! Ovladač je aktivní. +++")
                 
@@ -57,19 +57,19 @@ async def connect_and_listen():
             
             # Odpojeno ESP32 modulem
             publish_status("SLEEP")
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.1)
             
         except Exception as e:
             error_msg = str(e)
             
             # Pokud ovladač prostě usnul a nevysílá, zachováme klid
             if "was not found" in error_msg or "Device with address" in error_msg:
-                publish_status("SLEEP")
-                await asyncio.sleep(0.5)
+                # Blesková obrátka - téměř nulové zpoždění před dalším pokusem
+                await asyncio.sleep(0.1)
             else:
                 # Občasný drobný šum přejdeme tichým připojením
                 publish_status("CONNECTING")
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(0.5)
 
 if __name__ == "__main__":
     try:
