@@ -24,13 +24,13 @@ Tento návod předpokládá čistou instalaci Raspberry Pi OS.
 
 Otevřete terminál v Raspberry Pi a stáhněte tento projekt:
 
-git clone <VLOŽTE_ZDE_ODKAZ_NA_VÁŠ_GITHUB_REPOZITÁŘ>
-cd <NÁZEV_SLOŽKY_REPOZITÁŘE>
+git clone <https://github.com/lukaskrevky-hub/rpi>
+cd <rpi/>
 
 
 2. Automatická instalace závislostí
 
-Projekt vyžaduje MQTT Broker (Mosquitto), hlasový syntetizér (eSpeak) a Python knihovny. Vše se nainstaluje automaticky:
+Projekt vyžaduje MQTT Broker (Mosquitto) a Python knihovny. Vše se nainstaluje automaticky:
 
 chmod +x setup.sh
 ./setup.sh
@@ -66,4 +66,5 @@ http://<IP_ADRESA_RPI>:5000
 Pokud chcete využívat i ovládání televize, spusťte interaktivní skript, který vás provede nahráním signálů z vašeho stávajícího TV ovladače:
 
 chmod +x record_ir.sh
+
 ./record_ir.sh samsung  # Místo samsung zadejte značku vaší TV
