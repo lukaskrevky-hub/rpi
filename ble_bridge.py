@@ -1,18 +1,21 @@
 import asyncio
-from bleak import BleakClient, BleakScanner
+from bleak import BleakClient, BleakError
 import paho.mqtt.client as mqtt
 import sys
 
 # ==========================================
-# CÍLOVÁ MAC ADRESA
+# VAŠE ZJIŠTĚNÁ MAC ADRESA
 TARGET_MAC = "10:06:1C:B5:A7:36"
 # ==========================================
 
 UART_TX_CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+
+# MQTT Konfigurace
 MQTT_BROKER = "localhost"
 MQTT_TOPIC = "joystick/command"
-TOPIC_STATUS = "joystick/status" 
+TOPIC_STATUS = "joystick/status"  # <--- NOVÉ: Téma pro stav
 
+# --- MQTT SETUP ---
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
 try:
@@ -23,84 +26,56 @@ except Exception as e:
     print(f"Chyba MQTT: {e}")
     sys.exit(1)
 
-current_status = ""
+# --- POMOCNÉ FUNKCE ---
 
 def publish_status(status):
-    global current_status
-    if current_status != status:
-        print(f"STAV -> {status}") 
-        client.publish(TOPIC_STATUS, status, retain=True)
-        current_status = status
+    """Odeslání stavu do MQTT (retain=True aby si to web načetl i po refresh)"""
+    print(f"STAV -> {status}") 
+    client.publish(TOPIC_STATUS, status, retain=True)
 
 def notification_handler(sender, data):
+    """Zpracování dat přijatých z ESP32."""
     command = data.decode('utf-8').strip()
+    print(f"Přijato z BLE: {command}")
     client.publish(MQTT_TOPIC, command)
 
-async def connect_and_listen():
-    print(f"--- SPUŠTĚN KOMUNITNÍ ROBUSTNÍ REŽIM NA {TARGET_MAC} ---")
+def disconnected_callback(client):
+    """Zavolá se, když se ESP32 odpojí (usne)."""
+    print(">>> Ztráta spojení (Joystick usnul nebo je mimo dosah).")
     publish_status("SLEEP")
-    
-    # Exponenciální backoff pro uklidnění BlueZ
-    backoff = 1.0 
+
+# --- HLAVNÍ SMYČKA PRO PŘIPOJENÍ ---
+
+async def connect_and_listen():
+    print(f"--- SPUŠTĚN DIRECT CONNECT NA {TARGET_MAC} ---")
+    publish_status("SLEEP")
     
     while True:
         try:
-            # 1. Hledáme zařízení pomocí standardního skeneru
-            device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=3.0)
+            print(f"Čekám na probuzení joysticku ({TARGET_MAC})...")
             
-            if not device:
-                # Ovladač spí
-                publish_status("SLEEP")
-                await asyncio.sleep(0.5)
-                continue
+            # timeout=15.0: RPi bude 15 sekund čekat na této adrese.
+            async with BleakClient(TARGET_MAC, disconnected_callback=disconnected_callback, timeout=15.0) as client:
                 
-            publish_status("CONNECTING")
-            
-            # ZLATÉ PRAVIDLO KOMUNITY: Zastavení skeneru není okamžité. 
-            # BlueZ potřebuje přesně 2 vteřiny na uvolnění D-Bus sběrnice.
-            await asyncio.sleep(2.0)
-            
-            # 2. Samotné připojení
-            async with BleakClient(device, timeout=15.0) as client_ble:
+                # Pokud jsme se dostali sem, handshaking začal
+                publish_status("CONNECTING") 
+                print("Navazuji spojení...")
+                
+                # Zapneme notifikace
+                await client.start_notify(UART_TX_CHAR_UUID, notification_handler)
+                
+                print("PŘIPOJENO! Ovladač je aktivní.")
                 publish_status("READY") 
-                print("\n+++ PŘIPOJENO! Ovladač je aktivní. +++")
-                backoff = 1.0 # Reset backoffu po úspěšném připojení
                 
-                await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
-                
-                # Sledujeme spojení
-                while client_ble.is_connected:
+                # Smyčka udržující spojení
+                while client.is_connected:
                     await asyncio.sleep(0.5)
             
-            # Korektní odpojení
-            print("--- Ovladač se odpojil ---")
-            publish_status("SLEEP")
-            await asyncio.sleep(1.0)
+            # Zde se kód dostane po odpojení
             
         except Exception as e:
-            error_msg = str(e)
-            
-            if "was not found" in error_msg:
-                await asyncio.sleep(1.0)
-                continue
-                
-            print(f"   [BlueZ Chyba] {error_msg}")
-            
-            # ŘEŠENÍ PODLE INTERNETU (Home Assistant komunita):
-            if "In Progress" in error_msg:
-                # Modul se zablokoval. Exponenciálně prodlužujeme čekání, 
-                # abychom mu dali šanci se vzpamatovat bez vynuceného restartu.
-                print(f"   -> Čekám {backoff} vteřin na uvolnění modulu...")
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 8.0) # Max 8 vteřin
-                
-            elif "br-connection-canceled" in error_msg or "abort-by-local" in error_msg:
-                # HW interference (Wi-Fi vs Bluetooth). Krátká pauza na obnovu.
-                print("   -> Spojení zrušeno hardwarem. Zkouším znovu...")
-                await asyncio.sleep(2.0)
-                
-            else:
-                await asyncio.sleep(2.0)
+            # Pokud se připojení nepovede (joystick spí), je to OK.
+            await asyncio.sleep(0.1)
 
 if __name__ == "__main__":
     try:
@@ -109,3 +84,4 @@ if __name__ == "__main__":
         print("\nUkončuji program...")
         publish_status("SLEEP")
         sys.exit(0)
+
