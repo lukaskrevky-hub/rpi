@@ -31,10 +31,12 @@ for btn in "${BUTTONS[@]}"; do
     echo ">>> Připravte si ovladač pro tlačítko: [$btn] <<<"
     read -p "Stiskněte ENTER, namiřte ovladač na senzor a krátce stiskněte tlačítko..."
     
-    # Spuštění nahrávání (ir-ctl samo skončí po zachycení signálu a chvilce ticha)
-    ir-ctl -r -d $DEVICE > "$DIR/$btn.txt"
+    # OPRAVA: Přidán parametr -1 (One-Shot). 
+    # Program nahraje jeden stisk a sám se hned ukončí.
+    ir-ctl -r -1 -d $DEVICE > "$DIR/$btn.txt"
     
     echo "Uloženo: $btn.txt"
+    sleep 1 # Vteřina pauza pro jistotu, než přejdeme na další tlačítko
 done
 
 echo ""
