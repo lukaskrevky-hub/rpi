@@ -39,26 +39,33 @@ def disconnected_callback(client_ble):
     pass # Ignorujeme spam z Linuxu, stav vyřeší smyčka níže
 
 async def connect_and_listen():
-    print(f"--- SPUŠTĚN BLESKOVÝ REŽIM (S FILTREM DUCHŮ) NA {TARGET_MAC} ---")
+    print(f"--- SPUŠTĚN SNIPER REŽIM 2.0 (ČISTÁ DATA) NA {TARGET_MAC} ---")
     publish_status("SLEEP")
     
     while True:
         try:
-            # 1. Bleskový sken (max 1.0s). 
-            # Pokud ESP32 vysílá, vrátí výsledek OKAMŽITĚ a nečeká!
-            # Tím ověříme, že zařízení fyzicky existuje a vyhneme se Linuxovým falešným spojením.
-            device = await BleakScanner.find_device_by_address(TARGET_MAC, timeout=1.0)
-            
-            if not device:
-                # Ovladač opravdu spí, bleskově zkusíme znovu
-                await asyncio.sleep(0.1)
-                continue
+            device_event = asyncio.Event()
+            target_device = None
+
+            def detection_callback(device, advertisement_data):
+                nonlocal target_device
+                # Reagujeme POUZE ve chvíli, kdy fyzicky dorazí paket z naší MAC adresy
+                if device.address.lower() == TARGET_MAC.lower():
+                    target_device = device
+                    device_event.set()
+
+            # 1. Nasloucháme POUZE živým datům, ignorujeme Linuxovou mezipaměť (cache)
+            async with BleakScanner(detection_callback):
+                await device_event.wait()
                 
-            # Pokud jsme zde, zařízení 100% fyzicky vysílá
+            # Pokud jsme zde, ESP32 fyzicky vyslalo čerstvý paket PRÁVĚ TEĎ.
             publish_status("CONNECTING")
             
-            # 2. Připojujeme se k prověřenému objektu 'device' (NE k textu)
-            async with BleakClient(device, disconnected_callback=disconnected_callback, timeout=5.0) as client_ble:
+            # Mikro-pauza pro bezpečné uvolnění antény po vypnutí skeneru
+            await asyncio.sleep(0.3)
+            
+            # 2. Bleskové připojení k čerstvě ověřenému objektu
+            async with BleakClient(target_device, disconnected_callback=disconnected_callback, timeout=5.0) as client_ble:
                 publish_status("READY") 
                 print("\n+++ PŘIPOJENO! Ovladač je aktivní. +++")
                 
@@ -70,7 +77,7 @@ async def connect_and_listen():
             
             # Odpojeno ESP32 modulem
             publish_status("SLEEP")
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.5)
             
         except Exception as e:
             # Drobný šum ignorujeme a jedeme dál
