@@ -39,7 +39,7 @@ def disconnected_callback(client_ble):
     pass # Ignorujeme spam z Linuxu, stav vyřeší smyčka níže
 
 async def connect_and_listen():
-    print(f"--- SPUŠTĚN SNIPER REŽIM 3.0 (FILTR DUCHŮ) NA {TARGET_MAC} ---")
+    print(f"--- SPUŠTĚN SNIPER REŽIM 4.0 (ULTRA-FAST RETRY) NA {TARGET_MAC} ---")
     publish_status("SLEEP")
     
     while True:
@@ -52,11 +52,8 @@ async def connect_and_listen():
                 nonlocal target_device, packet_count
                 if device.address.lower() == TARGET_MAC.lower():
                     packet_count += 1
-                    # TADY JE TA MAGIE: 
-                    # Cache Linuxu nám podstrčí jen 1 falešný (starý) paket.
-                    # Živé ESP32 jich ale do vzduchu střílí několik za vteřinu.
-                    # Počkáme si na 3. paket. Tím máme absolutní jistotu, že je signál čerstvý a živý.
-                    if packet_count >= 3:
+                    # ZRYCHLENÍ: Stačí nám 2 pakety (1 starý z mezipaměti + 1 prokazatelně čerstvý)
+                    if packet_count >= 2:
                         target_device = device
                         device_event.set()
 
@@ -68,26 +65,40 @@ async def connect_and_listen():
             publish_status("CONNECTING")
             
             # Mikro-pauza pro bezpečné uvolnění antény po vypnutí skeneru
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.1)
             
-            # 2. Bleskové připojení k čerstvě ověřenému objektu
-            async with BleakClient(target_device, disconnected_callback=disconnected_callback, timeout=5.0) as client_ble:
-                publish_status("READY") 
-                print("\n+++ PŘIPOJENO! Ovladač je aktivní. +++")
-                
-                await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
-                
-                # Udržujeme spojení, dokud ho ESP32 (po 30s nečinnosti) samo neukončí
-                while client_ble.is_connected:
-                    await asyncio.sleep(0.5)
+            # 2. Bleskové připojení (s logikou okamžitého opakování)
+            # Zásadní změna: Jakmile víme, že je ovladač vzhůru, nebudeme při drobné 
+            # chybě Linuxu znovu zdlouhavě zapínat skener. Zkusíme to hned znovu!
+            for attempt in range(3):
+                try:
+                    async with BleakClient(target_device, disconnected_callback=disconnected_callback, timeout=2.5) as client_ble:
+                        publish_status("READY") 
+                        print("\n+++ PŘIPOJENO! Ovladač je aktivní. +++")
+                        
+                        await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
+                        
+                        # Udržujeme spojení, dokud ho ESP32 (po 30s nečinnosti) samo neukončí
+                        while client_ble.is_connected:
+                            await asyncio.sleep(0.5)
+                            
+                    # Pokud jsme tady, spojení běželo a ESP32 ho korektně ukončilo.
+                    break # Vyskočíme z opakovací smyčky
+                    
+                except Exception as e:
+                    # Pokud připojení spadne (např. br-connection-canceled),
+                    # nepanikaříme a okamžitě pálíme další pokus bez skenování.
+                    if "was not found" in str(e):
+                        break # Zařízení už opravdu není v dosahu
+                    await asyncio.sleep(0.2)
             
-            # Odpojeno ESP32 modulem
+            # Odpojeno ESP32 modulem nebo vyčerpány pokusy
             publish_status("SLEEP")
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.2)
             
         except Exception as e:
             # Drobný šum ignorujeme a jedeme dál
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.2)
 
 if __name__ == "__main__":
     try:
