@@ -73,12 +73,10 @@
             {% if brands %}
             <div id="tv-brand-container" style="margin-bottom: 5px;">
                 <label for="tvBrand" style="font-size: 0.8rem; color: #888; margin-right: 5px;">TV:</label>
-                <select id="tvBrand" class="brand-select" onchange="changeBrand(this.value)">
-                    {% for brand in brands %}
-                    <option value="{{ brand }}" {% if brand == current_brand %}selected{% endif %}>
-                        {{ brand|upper }}
-                    </option>
-                    {% endfor %}
+                <select id="tv_selector" onchange="ulozVyberTV()">
+                    <option value="tcl">TCL</option>
+                    <option value="sony">Sony</option>
+                    <option value="samsung">Samsung</option>
                 </select>
             </div>
             {% endif %}
