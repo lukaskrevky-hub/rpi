@@ -72,8 +72,9 @@
             <!-- Výběr značky TV (zobrazí se pouze pokud z Pythonu přijdou data) -->
             {% if brands %}
             <div id="tv-brand-container" style="margin-bottom: 5px;">
-                <label for="tvBrand" style="font-size: 0.8rem; color: #888; margin-right: 5px;">TV:</label>
-                <select id="tv_selector" onchange="ulozVyberTV()">
+                <label for="tv_selector" style="font-size: 0.8rem; color: #888; margin-right: 5px;">TV:</label>
+                <!-- OPRAVA 1: Vrácena třída 'brand-select' pro tmavý design a upraveno volání funkce -->
+                <select id="tv_selector" class="brand-select" onchange="ulozVyberTV(this.value)">
                     <option value="tcl">TCL</option>
                     <option value="sony">Sony</option>
                     <option value="samsung">Samsung</option>
@@ -227,15 +228,21 @@
         // Pokud tam něco je, automaticky to nastavíme v roletce
         if (ulozenaTV) {
             document.getElementById("tv_selector").value = ulozenaTV;
+            
+            // OPRAVA 2: KLÍČOVÝ KROK! Musíme o tom, co jsme našli v trezoru, říct Pythonu, 
+            // aby mohl hned po startu upravit nápis "Režim: TV (...)"
+            changeBrand(ulozenaTV);
         }
     });
 
-    // 2. KROK: Když pacient vybere jinou TV, uložíme to do trezoru
-    function ulozVyberTV() {
-        let aktualniTV = document.getElementById("tv_selector").value;
-        localStorage.setItem("vybrana_televize", aktualniTV);
+    // 2. KROK: Když pacient vybere jinou TV, uložíme to do trezoru a pošleme Pythonu
+    function ulozVyberTV(vybranaZnacka) {
+        localStorage.setItem("vybrana_televize", vybranaZnacka);
+        
+        // Zavoláme původní funkci, která informuje Python server
+        changeBrand(vybranaZnacka);
     }
-</script>
+    </script>
     
 </body>
 </html>
