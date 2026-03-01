@@ -23,7 +23,7 @@ MENU_TV = [
     {"id": 4, "label": "HLASITOST -", "icon": "fa-volume-low", "color": "secondary", "type": "ir", "code": "vol_down"}
 ]
 
-AVAILABLE_BRANDS = ["tcl", "lg", "sony", "samsung", "panasonic"]
+AVAILABLE_BRANDS = ["tcl", "sony", "samsung"]
 
 # --- STAV SYSTÉMU ---
 system_state = {
