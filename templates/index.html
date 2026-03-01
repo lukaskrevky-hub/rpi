@@ -217,5 +217,25 @@
         // Volání smyčky
         setInterval(updateStatus, 300);
     </script>
+
+    <script>
+    // 1. KROK: Při načtení stránky (i po restartu RPi) zkontrolujeme trezor
+    document.addEventListener("DOMContentLoaded", function() {
+        // Podíváme se do paměti prohlížeče
+        let ulozenaTV = localStorage.getItem("vybrana_televize");
+        
+        // Pokud tam něco je, automaticky to nastavíme v roletce
+        if (ulozenaTV) {
+            document.getElementById("tv_selector").value = ulozenaTV;
+        }
+    });
+
+    // 2. KROK: Když pacient vybere jinou TV, uložíme to do trezoru
+    function ulozVyberTV() {
+        let aktualniTV = document.getElementById("tv_selector").value;
+        localStorage.setItem("vybrana_televize", aktualniTV);
+    }
+</script>
+    
 </body>
 </html>
