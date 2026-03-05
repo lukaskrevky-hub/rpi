@@ -4,6 +4,7 @@ import paho.mqtt.client as mqtt # Knihovna pro naslouchání a posílání zprá
 import threading                # Umožňuje spouštět věci na pozadí (tzv. vlákna), aby se web nezasekl
 import time                     # Práce s časem (pauzy, zaznamenávání času poslední akce)
 import subprocess               # Umožňuje spouštět systémové příkazy Linuxu (potřebujeme pro IR vysílač ir-ctl)
+import datetime                 # Knihovna pro práci s datem a časem (potřebná pro logování)
 
 # Vytvoření instance webové aplikace
 app = Flask(__name__)
@@ -45,6 +46,16 @@ system_state = {
     "last_action": 0             # Čas (timestamp) posledního potvrzení (spouští animaci probliknutí karty)
 }
 
+# --- FUNKCE PRO ZÁPIS DO DENÍČKU (LOGOVÁNÍ) ---
+# Zapisuje veškerou aktivitu do souboru. Výborné pro test baterie i pro dlouhodobý dohled.
+def log_activity(action):
+    # Získání aktuálního data a času ve formátu "ROK-MĚSÍC-DEN HODINA:MINUTA:SEKUNDA"
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # Otevření souboru v režimu "a" (append - přidávání nakonec, nemaže stará data)
+    with open("/home/lukas/rpi/aktivita_systemu.log", "a") as f:
+        f.write(f"[{timestamp}] - {action}\n")
+    print(f"Zapsáno do logu: [{timestamp}] - {action}")
+
 # --- MQTT LOGIKA (Zpracování zpráv z Bluetooth) ---
 # Funkce, která se zavolá automaticky POKAŽDÉ, když od ble_bridge přijde nějaká zpráva
 def on_message(client, userdata, msg):
@@ -54,6 +65,9 @@ def on_message(client, userdata, msg):
         if topic == "joystick/status":
             # Přišla zpráva o stavu BT připojení (SLEEP, CONNECTING, READY)
             system_state["connection"] = payload
+            # NOVÉ: Pokud se systém právě připojil, zaznamenáme to
+            if payload == "READY":
+                log_activity("Ovladač se úspěšně připojil.")
             
         elif topic == "joystick/command":
             # Přišel povel z joysticku (UP, DOWN, LEFT, RIGHT). Jdeme ho zpracovat.
@@ -62,6 +76,9 @@ def on_message(client, userdata, msg):
 
 # Mozek ovládání - překlad směrů páčky na konkrétní akce v menu
 def process_command(cmd):
+    # Zaznamenáme každý jednotlivý pohyb páčky do deníčku
+    log_activity(f"Přijat příkaz od pacienta: {cmd}")
+    
     # 1. NAHORU = Tlačítko pro přepnutí mezi obrazovkami (Zdravotní vs. Televize)
     if cmd == "UP": 
         toggle_mode()
@@ -190,7 +207,11 @@ def set_brand(brand):
 
 # --- SPUŠTĚNÍ CELÉ APLIKACE ---
 if __name__ == '__main__':
+    # Hned po startu Raspberry napíšeme do logu oddělovací čáru pro přehlednost
+    log_activity("--- SYSTÉM NASTARTOVÁN ---")
+    
     # 1. Spustíme MQTT pošťáka v samostatném vlákně (aby nebrzdil web)
     threading.Thread(target=start_mqtt, daemon=True).start()
-     # 2. Spustíme samotný webový server na portu 5000 (přístupný pro celou síť)
+    
+    # 2. Spustíme samotný webový server na portu 5000 (přístupný pro celou síť)
     app.run(host='0.0.0.0', port=5000, debug=False)
