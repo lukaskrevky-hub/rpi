@@ -17,8 +17,9 @@ MENU_HOME = [
     {"id": 0, "label": "MÁM ŽÍZEŇ", "icon": "fa-glass-water", "color": "primary", "type": "req"},
     {"id": 1, "label": "MÁM HLAD", "icon": "fa-utensils", "color": "warning", "type": "req"},
     {"id": 2, "label": "SVĚTLO", "icon": "fa-lightbulb", "color": "success", "type": "zigbee"},
-    {"id": 3, "label": "POMOC", "icon": "fa-hand-holding-medical", "color": "danger", "type": "req"},
-    {"id": 4, "label": "ZRUŠIT", "icon": "fa-rotate-left", "color": "secondary", "type": "cancel"}
+    {"id": 3, "label": "ZVONEK", "icon": "fa-bell", "color": "info", "type": "zigbee_bell"},
+    {"id": 4, "label": "POMOC", "icon": "fa-hand-holding-medical", "color": "danger", "type": "req"},
+    {"id": 5, "label": "ZRUŠIT", "icon": "fa-rotate-left", "color": "secondary", "type": "cancel"}
 ]
 
 MENU_TV = [
@@ -134,6 +135,12 @@ def trigger_action():
             # Ovládání chytré domácnosti přes Zigbee2MQTT
             # Odesíláme zprávu "TOGGLE" (přepnout stav - pokud svítí, zhasne a naopak)
             try: mqtt_client.publish("zigbee2mqtt/zasuvka/set", '{"state": "TOGGLE"}')
+            except: pass
+
+        elif item.get("type") == "zigbee_bell":
+            # Ovládání chytrého zvonku (sirény) přes Zigbee2MQTT
+            # Odesíláme JSON zprávu k aktivaci zvonění. POUZOR: JSON se může drobně lišit podle modelu zvonku.
+            try: mqtt_client.publish("zigbee2mqtt/zvonek/set", '{"state": "ON"}')
             except: pass
             
         else:
