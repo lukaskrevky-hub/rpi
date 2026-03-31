@@ -61,26 +61,12 @@
             0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); }
         }
         .mode-label { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 2px; color: #888; margin-bottom: 2px; }
-        .brand-select { background-color: #333; color: white; border: 1px solid #555; padding: 4px 10px; border-radius: 6px; font-size: 0.9rem; margin-bottom: 5px; cursor: pointer; }
     </style>
 </head>
 <body>
     <div class="top-bar">
         <div>
             <div id="mode-display" class="mode-label">NAČÍTÁM...</div>
-
-            <!-- Výběr značky TV (zobrazí se pouze pokud z Pythonu přijdou data) -->
-            {% if brands %}
-            <div id="tv-brand-container" style="margin-bottom: 5px;">
-                <label for="tv_selector" style="font-size: 0.8rem; color: #888; margin-right: 5px;">TV:</label>
-                <!-- OPRAVA 1: Vrácena třída 'brand-select' pro tmavý design a upraveno volání funkce -->
-                <select id="tv_selector" class="brand-select" onchange="ulozVyberTV(this.value)">
-                    <option value="tcl">TCL</option>
-                    <option value="sony">Sony</option>
-                    <option value="samsung">Samsung</option>
-                </select>
-            </div>
-            {% endif %}
 
             <div class="msg-container">
                 <div id="status-message" style="font-size: 1.4rem; font-weight: bold;">Čekám na data...</div>
@@ -100,7 +86,7 @@
     </div>
 
     <script>
-        let lastMode = ""; 
+        let lastMenuStr = ""; 
         let lastActionTime = 0;
 
         function updateStatus() {
@@ -108,22 +94,21 @@
                 .then(response => response.json())
                 .then(data => {
                     
-                    // 1. ZMĚNA REŽIMU
-                    if (data.mode !== lastMode) {
+                    // 1. ZMĚNA MENU (Detekujeme změnu ve stromu karet)
+                    const currentMenuStr = JSON.stringify(data.current_menu);
+                    if (currentMenuStr !== lastMenuStr) {
                         renderMenu(data.current_menu);
-                        lastMode = data.mode;
+                        lastMenuStr = currentMenuStr;
                         
                         const modeLabel = document.getElementById('mode-display');
-                        const tvContainer = document.getElementById('tv-brand-container');
                         
-                        if (data.mode === 'tv') {
+                        // Pokud jsme zalezlí někde v podmenu (v historii je záznam), změníme nadpis
+                        if (data.menu_history && data.menu_history.length > 0) {
                             modeLabel.innerText = "OVLÁDÁNÍ TELEVIZE";
                             modeLabel.style.color = "#0dcaf0"; 
-                            if(tvContainer) tvContainer.style.display = "block";
                         } else {
                             modeLabel.innerText = "BĚŽNÉ POŽADAVKY";
                             modeLabel.style.color = "#888"; 
-                            if(tvContainer) tvContainer.style.display = "none";
                         }
                     }
 
@@ -178,8 +163,9 @@
             const resetBtn = document.getElementById('reset-button');
             msgBox.innerText = data.message;
             
-            const isInfoMessage = data.message.startsWith("Režim:") || 
-                                  data.message.startsWith("TV:");
+            const isInfoMessage = data.message.startsWith("Menu:") || 
+                                  data.message.startsWith("TV:") || 
+                                  data.message === "Jste v hlavním menu";
             
             if (data.message !== "Připraveno" && !isInfoMessage) {
                 msgBox.style.color = "#ffc107";
@@ -213,36 +199,9 @@
         // Pomocné funkce pro posílání kliknutí myší
         function manualClick(id) { fetch('/api/click/' + id, { method: 'POST' }); }
         function resetMsg() { fetch('/api/reset', { method: 'POST' }); }
-        function changeBrand(brand) { fetch('/api/set_brand/' + brand, { method: 'POST' }); }
 
         // Volání smyčky
         setInterval(updateStatus, 300);
     </script>
-
-    <script>
-    // 1. KROK: Při načtení stránky (i po restartu RPi) zkontrolujeme trezor
-    document.addEventListener("DOMContentLoaded", function() {
-        // Podíváme se do paměti prohlížeče
-        let ulozenaTV = localStorage.getItem("vybrana_televize");
-        
-        // Pokud tam něco je, automaticky to nastavíme v roletce
-        if (ulozenaTV) {
-            document.getElementById("tv_selector").value = ulozenaTV;
-            
-            // OPRAVA 2: KLÍČOVÝ KROK! Musíme o tom, co jsme našli v trezoru, říct Pythonu, 
-            // aby mohl hned po startu upravit nápis "Režim: TV (...)"
-            changeBrand(ulozenaTV);
-        }
-    });
-
-    // 2. KROK: Když pacient vybere jinou TV, uložíme to do trezoru a pošleme Pythonu
-    function ulozVyberTV(vybranaZnacka) {
-        localStorage.setItem("vybrana_televize", vybranaZnacka);
-        
-        // Zavoláme původní funkci, která informuje Python server
-        changeBrand(vybranaZnacka);
-    }
-    </script>
-    
 </body>
 </html>
