@@ -18,7 +18,6 @@ MENU_HOME = [
     {"id": 3, "label": "ZVONEK", "icon": "fa-bell", "color": "info", "type": "zigbee_bell"},
     {"id": 4, "label": "POMOC", "icon": "fa-hand-holding-medical", "color": "danger", "type": "req"},
     {"id": 5, "label": "TELEVIZE", "icon": "fa-tv", "color": "secondary", "type": "submenu", "target": "tv_controls"},
-    # Nová položka pro vstup do sekce klimatizace
     {"id": 6, "label": "KLIMATIZACE", "icon": "fa-snowflake", "color": "info", "type": "submenu", "target": "ac_controls"},
     {"id": 7, "label": "RÁDIO", "icon": "fa-radio", "color": "warning", "type": "submenu", "target": "radio_controls"},
     {"id": 8, "label": "LED PÁSKY", "icon": "fa-palette", "color": "success", "type": "submenu", "target": "led_controls"}
@@ -74,7 +73,7 @@ MENUS = {
 
 # Samostatné seznamy pro "kobercový nálet"
 AVAILABLE_TV_BRANDS = ["tcl", "sony", "samsung"]
-AVAILABLE_AC_BRANDS = ["lg", "daikin", "samsung", "panasonic"] # Zatím jen příprava, upravíš si podle sebe
+AVAILABLE_AC_BRANDS = ["lg", "daikin", "samsung", "panasonic"] # Zatím jen příprava, potom se upraví
 AVAILABLE_RADIO_BRANDS = ["sony", "panasonic", "philips"]
 AVAILABLE_LED_BRANDS = ["rgb_generic_1", "rgb_generic_2"]
 
