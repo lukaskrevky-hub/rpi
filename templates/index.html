@@ -136,20 +136,24 @@
                     // Převedení pole objektů (menu) na JSON řetězec umožňuje rychlé porovnání stavů.
                     const currentMenuStr = JSON.stringify(data.current_menu);
                     if (currentMenuStr !== lastMenuStr) {
-                        // Překreslení pouze při skutečné změně dat (např. přechod do podmenu)
+                        // Překreslení pouze při skutečné změně dat (např. přechod do podmenu nebo změna režimu)
                         renderMenu(data.current_menu);
                         lastMenuStr = currentMenuStr;
                         
                         const modeLabel = document.getElementById('mode-display');
                         
-                        // Detekce hloubky zanoření ve stromovém menu. 
-                        // Pokud není prázdná historie, nacházíme se v podmenu ovladačů.
+                        // Detekce, ve které části aplikace se nacházíme (Hluboké podmenu vs. Dvě hlavní obrazovky)
                         if (data.menu_history && data.menu_history.length > 0) {
-                            modeLabel.innerText = "OVLÁDÁNÍ ZAŘÍZENÍ";
+                            modeLabel.innerText = "OVLÁDÁNÍ ZAŘÍZENÍ - PODMENU";
                             modeLabel.style.color = "#0dcaf0"; 
                         } else {
-                            modeLabel.innerText = "BĚŽNÉ POŽADAVKY";
-                            modeLabel.style.color = "#888"; 
+                            if (data.mode === "devices") {
+                                modeLabel.innerText = "VÝBĚR ZAŘÍZENÍ";
+                                modeLabel.style.color = "#0dcaf0"; 
+                            } else {
+                                modeLabel.innerText = "BĚŽNÉ POŽADAVKY";
+                                modeLabel.style.color = "#888"; 
+                            }
                         }
                     }
 
@@ -220,6 +224,7 @@
                                   data.message.startsWith("KLÍMA:") || 
                                   data.message.startsWith("RÁDIO:") || 
                                   data.message.startsWith("LED:") || 
+                                  data.message.startsWith("Režim:") ||
                                   data.message === "Jste v hlavním menu";
             
             // Logika spuštění poplachu (tlačítko "Vyřízeno" se zobrazí pouze u reálných požadavků).
