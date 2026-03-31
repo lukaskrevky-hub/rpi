@@ -5,25 +5,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Asistivní Hub</title>
     
-    <!-- === EXTERNÍ KNIHOVNY (CDN) === -->
-    <!-- Bootstrap 5: CSS framework pro responzivní mřížku (grid) a základní UI komponenty -->
+    <!-- ========================================== -->
+    <!-- EXTERNÍ KNIHOVNY A FRAMEWORKY (CDN)        -->
+    <!-- ========================================== -->
+    <!-- Bootstrap 5: CSS framework využívaný pro responzivní mřížku (grid systém) a základní typografii -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- FontAwesome 6: Vektorové ikony používané na kartách a v horní liště -->
+    <!-- FontAwesome 6: Knihovna vektorových ikon pro grafickou reprezentaci jednotlivých požadavků a stavů -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- === KASKÁDOVÉ STYLY (CSS) === -->
+    <!-- ========================================== -->
+    <!-- KASKÁDOVÉ STYLY (CSS)                      -->
+    <!-- ========================================== -->
     <style>
-        /* Základní definice vzhledu (Dark Mode pro menší namáhání očí pacienta) */
+        /* --- ZÁKLADNÍ VZHLED (Téma) --- */
+        /* Zvolen Dark Mode (tmavý režim) pro minimalizaci únavy očí pacienta/uživatele */
         body { 
             background-color: #121212; 
             color: white; 
             font-family: 'Segoe UI', sans-serif; 
-            overflow-x: hidden; /* Zamezení horizontálnímu posuvníku */
+            overflow-x: hidden; /* Ochrana proti nechtěnému horizontálnímu posouvání obrazovky */
         }
         
-        /* Styl jednotlivých položek menu (Karet) */
+        /* --- STYLOVÁNÍ KARET (Prvky menu) --- */
         .card { 
-            transition: all 0.2s ease-in-out; /* Plynulé animace při najetí/výběru */
+            transition: all 0.2s ease-in-out; /* Hardwarově akcelerovaná plynulá animace změn */
             cursor: pointer; 
             border: 2px solid #333; 
             background-color: #1e1e1e; 
@@ -34,16 +39,17 @@
             justify-content: center;
         }
         
-        /* Třída pro kartu, která je aktuálně vybrána (zvýrazněna) joystickem */
+        /* Zvýraznění karty, na které se aktuálně nachází kurzor (joystick) */
         .joystick-active { 
             border-color: #00ff00 !important; 
-            transform: scale(1.05); /* Mírné zvětšení aktivní karty */
-            box-shadow: 0 0 25px rgba(0, 255, 0, 0.4); 
+            transform: scale(1.05); /* Vizuální vystoupení karty do popředí */
+            box-shadow: 0 0 25px rgba(0, 255, 0, 0.4); /* Zelená záře pro jasnou identifikaci */
             background-color: #2a2a2a; 
             z-index: 10;
         }
 
-        /* Vizuální zpětná vazba: Animace (probliknutí) při potvrzení akce */
+        /* --- ANIMACE (Vizuální a haptická odezva) --- */
+        /* Animace potvrzení - karta při stisku tlačítka "SELECT" problikne zeleně */
         @keyframes flashConfirm {
             0% { background-color: #2a2a2a; transform: scale(1.05); }
             50% { background-color: #198754; transform: scale(1.15); box-shadow: 0 0 40px #198754; }
@@ -55,15 +61,17 @@
         
         .icon-large { font-size: 3.5rem; margin-bottom: 15px; display: block; }
         
-        /* Horní informační panel (připevněný k hornímu okraji) */
+        /* --- HORNÍ INFORMAČNÍ PANEL (Stavová lišta) --- */
         .top-bar {
             display: flex; justify-content: space-between; align-items: center;
             padding: 15px 20px; background: #000; border-bottom: 1px solid #333;
-            margin-bottom: 20px; position: sticky; top: 0; z-index: 1000;
+            margin-bottom: 20px; 
+            position: sticky; top: 0; z-index: 1000; /* Panel zůstává viditelný i při rolování dolů */
         }
         
-        /* Stylování indikátoru stavu připojení joysticku */
         .msg-container { display: flex; align-items: center; gap: 15px; }
+        
+        /* Stylování dynamického indikátoru připojení (Bluetooth/MQTT) */
         .status-badge {
             font-size: 1rem; padding: 6px 15px; border-radius: 50px; font-weight: bold;
             display: flex; align-items: center; gap: 8px; text-transform: uppercase;
@@ -73,92 +81,102 @@
         .status-sleep { background-color: #212529; color: #6c757d; border: 1px solid #495057; }
         .status-conn { background-color: #ffc107; color: black; border: 1px solid #ffc107; }
         
-        /* Tlačítko pro vyřízení požadavku (určeno pro ošetřovatele) */
+        /* Tlačítko pro vyřízení alarmu ošetřovatelem */
         .reset-btn {
             background-color: #dc3545; color: white; border: none;
             padding: 5px 15px; border-radius: 5px; font-weight: bold;
-            display: none; cursor: pointer; animation: pulse 2s infinite;
+            display: none; cursor: pointer; 
+            animation: pulse 2s infinite; /* Výstražné pulzování přitahující pozornost */
         }
         .reset-btn:hover { background-color: #bb2d3b; }
         
-        /* Pulzující animace upozorňující na nevyřízený požadavek */
         @keyframes pulse {
             0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); }
         }
         
+        /* Drobný nadpis indikující aktuální úroveň menu */
         .mode-label { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 2px; color: #888; margin-bottom: 2px; }
     </style>
 </head>
 <body>
-    <!-- === HORNÍ INFORMAČNÍ PANEL === -->
+    <!-- ========================================== -->
+    <!-- STRUKTURA UŽIVATELSKÉHO ROZHRANÍ (DOM)     -->
+    <!-- ========================================== -->
+    
+    <!-- Horní fixní informační panel -->
     <div class="top-bar">
         <div>
-            <!-- Indikátor aktuální úrovně v menu (např. Hlavní obrazovka, TV, Rádio) -->
+            <!-- Indikátor kontextu (hlavní menu vs. podmenu zařízení) -->
             <div id="mode-display" class="mode-label">NAČÍTÁM...</div>
 
             <div class="msg-container">
-                <!-- Dynamický textový výstup zpráv od pacienta -->
+                <!-- Oblast pro textové hlášení požadavků (např. "Mám žízeň") -->
                 <div id="status-message" style="font-size: 1.4rem; font-weight: bold;">Čekám na data...</div>
-                <!-- Tlačítko pro storno zprávy pečovatelem (odesílá API dotaz /api/reset) -->
+                <!-- Skryté deaktivační tlačítko; zviditelní se pouze při aktivním poplachu -->
                 <button id="reset-button" class="reset-btn" onclick="resetMsg()">
                     <i class="fa-solid fa-check"></i> VYŘÍZENO
                 </button>
             </div>
         </div>
-        <!-- Vizuální ukazatel stavu BLE spojení mezi malinou a joystickem -->
+        <!-- Vizuální ukazatel stavu bezdrátové komunikace s hardwarem -->
         <div id="connection-indicator" class="status-badge status-sleep">
             <i class="fa-solid fa-moon"></i> <span>SPÍ</span>
         </div>
     </div>
 
-    <!-- === HLAVNÍ OBSAH - DYNAMICKÁ MŘÍŽKA KARET === -->
+    <!-- Hlavní kontejner pro dynamické vykreslování položek menu -->
     <div class="container">
-        <!-- Zde JavaScript dynamicky vykreslí komponenty menu (Karty) pomocí dat z backendu. -->
+        <!-- Třída 'row' s 'justify-content-center' centruje nevyplněné řádky v mřížce -->
         <div id="menu-container" class="row justify-content-center g-4"></div>
     </div>
 
-    <!-- === APLIKAČNÍ LOGIKA (JavaScript) === -->
+    <!-- ========================================== -->
+    <!-- APLIKAČNÍ LOGIKA FRONTENDU (JavaScript)    -->
+    <!-- ========================================== -->
     <script>
-        // --- GLOBÁLNÍ STAVOVÉ PROMĚNNÉ FRONTENDU ---
-        let lastMenuStr = "";       // Slouží k detekci změny ve struktuře menu (zabraňuje zbytečnému překreslování DOMu)
-        let lastActionTime = 0;     // Ukládá časové razítko poslední akce pro řízení "flash" animace
+        // --- GLOBÁLNÍ STAVOVÉ PROMĚNNÉ ---
+        let lastMenuStr = "";       // Slouží k detekci změn v datové struktuře menu (zabraňuje neustálému překreslování DOMu)
+        let lastActionTime = 0;     // Uchovává časové razítko poslední události pro triggrování CSS animací
 
         /**
          * Hlavní asynchronní smyčka (Polling).
-         * Pravidelně dotazuje Flask backend (API) na aktuální stav systému.
+         * Periodicky dotazuje Flask backend (REST API) na aktuální stavový objekt systému.
          */
         function updateStatus() {
-            fetch('/api/status')
+            // Parametr 't' (timestamp) na konci URL slouží jako tzv. "Cache-Buster". 
+            // Zabraňuje prohlížeči, aby vracel stará nacachovaná data (častý problém při rychlém pollingu).
+            fetch('/api/status?t=' + new Date().getTime())
                 .then(response => response.json())
                 .then(data => {
                     
-                    // --- 1. ZPRACOVÁNÍ ZMĚNY STRUKTURY MENU ---
-                    // Převedení pole objektů (menu) na JSON řetězec umožňuje rychlé porovnání stavů.
+                    // --- 1. DETEKCE ZMĚN VE STRUKTUŘE MENU ---
+                    // Serializace (JSON.stringify) umožňuje porovnat obsah dvou vnořených struktur.
                     const currentMenuStr = JSON.stringify(data.current_menu);
                     if (currentMenuStr !== lastMenuStr) {
-                        // Překreslení pouze při skutečné změně dat (např. přechod do podmenu nebo změna režimu)
+                        // K překreslení DOMu dojde pouze v případě, že pacient přepnul obrazovku.
                         renderMenu(data.current_menu);
                         lastMenuStr = currentMenuStr;
                         
                         const modeLabel = document.getElementById('mode-display');
                         
-                        // Detekce, ve které části aplikace se nacházíme (Hluboké podmenu vs. Dvě hlavní obrazovky)
+                        // Zjištění kontextu aplikace: Pokud historie není prázdná, uživatel je v hlubokém podmenu.
                         if (data.menu_history && data.menu_history.length > 0) {
                             modeLabel.innerText = "OVLÁDÁNÍ ZAŘÍZENÍ - PODMENU";
-                            modeLabel.style.color = "#0dcaf0"; 
+                            modeLabel.style.color = "#0dcaf0"; // Azurová barva pro technologický mód
                         } else {
+                            // Kontrola nadřazeného režimu ('devices' pro výběr zařízení, 'home' pro základní požadavky)
                             if (data.mode === "devices") {
                                 modeLabel.innerText = "VÝBĚR ZAŘÍZENÍ";
                                 modeLabel.style.color = "#0dcaf0"; 
                             } else {
                                 modeLabel.innerText = "BĚŽNÉ POŽADAVKY";
-                                modeLabel.style.color = "#888"; 
+                                modeLabel.style.color = "#888"; // Šedá barva pro výchozí mód
                             }
                         }
                     }
 
-                    // --- 2. VIZUALIZACE KURZORU (Výběru) ---
-                    // Přiřazení třídy 'joystick-active' prvku odpovídajícímu aktuálnímu indexu.
+                    // --- 2. AKTUALIZACE POZICE KURZORU ---
+                    // Prochází všechny existující karty v DOMu a aplikuje CSS třídu pouze na aktivní index.
                     document.querySelectorAll('.card').forEach((c, idx) => {
                         if (idx === data.selected_index) {
                             c.classList.add('joystick-active');
@@ -167,35 +185,37 @@
                         }
                     });
 
-                    // --- 3. SPOUŠTĚNÍ ANIMACÍ (Haptická/Vizuální odezva) ---
-                    // Pokud je časové razítko poslední akce z backendu novější, přehraje se animace potvrzení.
+                    // --- 3. EXEKUCE ZPĚTNÉ VAZBY (Probliknutí) ---
+                    // Porovná nové časové razítko s historickým. Pokud je novější, došlo k akci na joysticku.
                     if (data.last_action && data.last_action > lastActionTime) {
                         lastActionTime = data.last_action;
                         const activeCard = document.querySelector('.joystick-active');
                         if (activeCard) {
-                            // Tzv. "CSS reflow hack" umožňující restartovat CSS animaci na stejném elementu.
+                            // Tzv. "CSS Reflow Hack": Rychlé odstranění a zpětné přiřazení třídy
+                            // včetně asynchronního vynucení přepočtu stylů (offsetWidth) zaručí restart animace.
                             activeCard.classList.remove('flash-animation');
-                            void activeCard.offsetWidth; // Spustí synchronní překreslení DOMu
+                            void activeCard.offsetWidth; 
                             activeCard.classList.add('flash-animation');
                         }
                     }
 
-                    // --- 4. AKTUALIZACE STAVOVÉ LIŠTY ---
+                    // --- 4. DELEGACE AKTUALIZACE HLAVIČKY ---
                     updateHeader(data);
                 })
-                .catch(err => console.error("Chyba synchronizace s backendem:", err));
+                .catch(err => console.error("Chyba synchronizace s backendem (Fetch Error):", err));
         }
 
         /**
-         * Dynamicky generuje HTML strukturu položek menu (Karet) na základě JSON dat.
-         * Používá ES6 Template Literals pro přehlednou konstrukci HTML kódu.
-         * * @param {Array} menuItems - Pole slovníků obsahujících konfiguraci jednotlivých karet.
+         * Vykreslovací jádro (Render engine) pro dynamický generování položek menu.
+         * Využívá ES6 Template Literals pro srozumitelnou integraci proměnných do HTML řetězců.
+         * @param {Array} menuItems - Pole objektů reprezentujících jednotlivé karty menu.
          */
         function renderMenu(menuItems) {
             const container = document.getElementById('menu-container');
-            container.innerHTML = ""; // Vyčištění stávajícího kontejneru
+            container.innerHTML = ""; // Úplné vyčištění stávajícího DOM elementu
 
             menuItems.forEach((item, index) => {
+                // Kombinace tříd Bootstrapu (col-6, col-md-4) zajišťuje korektní škálování napříč displeji
                 const html = `
                 <div class="col-6 col-md-4 col-lg-3">
                     <div class="card h-100 text-center p-4 text-white" onclick="manualClick(${index})">
@@ -205,20 +225,21 @@
                         </div>
                     </div>
                 </div>`;
-                container.innerHTML += html; // Připojení nově vygenerované karty k DOMu
+                container.innerHTML += html; // Vložení nové karty do paměti a na obrazovku
             });
         }
 
         /**
-         * Zajišťuje logiku zobrazování stavových hlášek, upozornění pro ošetřovatele a stavu připojení.
-         * * @param {Object} data - Kompletní stavový objekt načtený z backendu.
+         * Logická vrstva zpracovávající hlavičku aplikace (upozornění, stavové indikátory).
+         * @param {Object} data - Kompletní stavový model deserializovaný z backend API.
          */
         function updateHeader(data) {
             const msgBox = document.getElementById('status-message');
             const resetBtn = document.getElementById('reset-button');
             msgBox.innerText = data.message;
             
-            // Filtrace zpráv: Rozlišení mezi informativní zprávou (navigace) a poplachem (např. žádost o pití).
+            // --- LOGIKA POPLACHŮ ---
+            // Filtrace stavů: Zjistíme, zda se jedná o běžnou navigaci (Info) nebo o požadavek pacienta (Poplach).
             const isInfoMessage = data.message.startsWith("Menu:") || 
                                   data.message.startsWith("TV:") || 
                                   data.message.startsWith("KLÍMA:") || 
@@ -227,22 +248,24 @@
                                   data.message.startsWith("Režim:") ||
                                   data.message === "Jste v hlavním menu";
             
-            // Logika spuštění poplachu (tlačítko "Vyřízeno" se zobrazí pouze u reálných požadavků).
+            // Tlačítko "VYŘÍZENO" se odhalí výhradně tehdy, pokud je aktivní poplach.
             if (data.message !== "Připraveno" && !isInfoMessage) {
-                msgBox.style.color = "#ffc107"; // Žlutá výstražná barva
+                msgBox.style.color = "#ffc107"; // Žlutá barva evokující nutnost pozornosti (Bootstrap Warning)
                 resetBtn.style.display = "block";
             } else {
-                msgBox.style.color = "white";
+                msgBox.style.color = "white"; // Klidový stav
                 resetBtn.style.display = "none";
             }
 
-            // Aktualizace indikátoru připojení (Přepínání CSS tříd a FontAwesome ikon).
+            // --- LOGIKA INDIKÁTORU PŘIPOJENÍ ---
             const badge = document.getElementById('connection-indicator');
             const icon = badge.querySelector('i');
             const text = badge.querySelector('span');
             
+            // Odstranění předchozích stavů (vyčištění tříd)
             badge.classList.remove('status-ready', 'status-sleep', 'status-conn');
 
+            // Vyhodnocení stavového stroje spojení a přiřazení adekvátní grafické vizualizace
             if (data.connection === 'READY') {
                 badge.classList.add('status-ready');
                 icon.className = 'fa-solid fa-gamepad';
@@ -258,17 +281,22 @@
             }
         }
 
-        // --- MANUÁLNÍ OVLÁDÁNÍ PŘES UI ---
-        // Umožňuje ovládání systému i pečovatelem pomocí dotykové obrazovky / myši, bez nutnosti použití joysticku.
+        // ==========================================
+        // MANUÁLNÍ OVLÁDÁNÍ (ZÁCHRANNÉ/PEČOVATELSKÉ UI)
+        // ==========================================
+        // Tyto funkce umožňují interakci s aplikací i bez připojeného hardwarového ovladače (např. přes dotykový displej).
         
-        // Simuluje stisk karty pacienta (odesílá index karty na API)
+        /** Odesílá index karty na backend po kliknutí myší / dotykem. */
         function manualClick(id) { fetch('/api/click/' + id, { method: 'POST' }); }
         
-        // Resetuje aktivní poplach odesláním požadavku na příslušný API endpoint
+        /** Vynucuje smazání alarmu ošetřujícím personálem. */
         function resetMsg() { fetch('/api/reset', { method: 'POST' }); }
 
-        // --- START APLIKACE ---
-        // Inicializace hlavní programové smyčky. Polling frekvence nastavena na 300 ms pro optimální plynulost uživatelského rozhraní.
+        // ==========================================
+        // INICIALIZACE APLIKACE
+        // ==========================================
+        // Spuštění asynchronní smyčky s intervalem 300 milisekund (cca 3.3 FPS), což představuje optimální 
+        // kompromis mezi plynulostí UI a vytížením sítě/procesoru mikropočítače Raspberry Pi.
         setInterval(updateStatus, 300);
     </script>
 </body>
