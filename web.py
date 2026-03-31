@@ -10,8 +10,6 @@ import datetime
 app = Flask(__name__)
 
 # --- DEFINICE STROMOVÉHO MENU ---
-# Nový systém podporuje vnořování. Typ "submenu" nás přesměruje do jiného seznamu.
-# Typ "back" nás vrátí o úroveň výš.
 
 MENU_HOME = [
     {"id": 0, "label": "MÁM ŽÍZEŇ", "icon": "fa-glass-water", "color": "primary", "type": "req"},
@@ -19,37 +17,75 @@ MENU_HOME = [
     {"id": 2, "label": "SVĚTLO", "icon": "fa-lightbulb", "color": "success", "type": "zigbee"},
     {"id": 3, "label": "ZVONEK", "icon": "fa-bell", "color": "info", "type": "zigbee_bell"},
     {"id": 4, "label": "POMOC", "icon": "fa-hand-holding-medical", "color": "danger", "type": "req"},
-    # Přímý vstup do sekce televize - už žádný výběr značek
-    {"id": 5, "label": "TELEVIZE", "icon": "fa-tv", "color": "secondary", "type": "submenu", "target": "tv_controls"}
+    {"id": 5, "label": "TELEVIZE", "icon": "fa-tv", "color": "secondary", "type": "submenu", "target": "tv_controls"},
+    # Nová položka pro vstup do sekce klimatizace
+    {"id": 6, "label": "KLIMATIZACE", "icon": "fa-snowflake", "color": "info", "type": "submenu", "target": "ac_controls"},
+    {"id": 7, "label": "RÁDIO", "icon": "fa-radio", "color": "warning", "type": "submenu", "target": "radio_controls"},
+    {"id": 8, "label": "LED PÁSKY", "icon": "fa-palette", "color": "success", "type": "submenu", "target": "led_controls"}
 ]
 
-# Podmenu: Samotný univerzální dálkový ovladač
+# Podmenu 1: Samotný univerzální dálkový ovladač pro TV
+# Přidán parametr "device": "tv", abychom věděli, v jakých složkách hledat
 MENU_TV_CONTROLS = [
-    {"id": 0, "label": "ZAP/VYP", "icon": "fa-power-off", "color": "danger", "type": "ir", "code": "power"},
-    {"id": 1, "label": "PROGRAM +", "icon": "fa-arrow-up", "color": "info", "type": "ir", "code": "ch_up"},
-    {"id": 2, "label": "PROGRAM -", "icon": "fa-arrow-down", "color": "info", "type": "ir", "code": "ch_down"},
-    {"id": 3, "label": "HLASITOST +", "icon": "fa-volume-high", "color": "secondary", "type": "ir", "code": "vol_up"},
-    {"id": 4, "label": "HLASITOST -", "icon": "fa-volume-low", "color": "secondary", "type": "ir", "code": "vol_down"},
+    {"id": 0, "label": "ZAP/VYP", "icon": "fa-power-off", "color": "danger", "type": "ir", "device": "tv", "code": "power"},
+    {"id": 1, "label": "PROGRAM +", "icon": "fa-arrow-up", "color": "info", "type": "ir", "device": "tv", "code": "ch_up"},
+    {"id": 2, "label": "PROGRAM -", "icon": "fa-arrow-down", "color": "info", "type": "ir", "device": "tv", "code": "ch_down"},
+    {"id": 3, "label": "HLASITOST +", "icon": "fa-volume-high", "color": "secondary", "type": "ir", "device": "tv", "code": "vol_up"},
+    {"id": 4, "label": "HLASITOST -", "icon": "fa-volume-low", "color": "secondary", "type": "ir", "device": "tv", "code": "vol_down"},
     {"id": 5, "label": "ZPĚT", "icon": "fa-arrow-left", "color": "secondary", "type": "back"}
+]
+
+# Podmenu 2: Univerzální dálkový ovladač pro KLIMATIZACI
+# Přidán parametr "device": "ac"
+MENU_AC_CONTROLS = [
+    {"id": 0, "label": "ZAP/VYP", "icon": "fa-power-off", "color": "danger", "type": "ir", "device": "ac", "code": "power"},
+    {"id": 1, "label": "TEPLOTA +", "icon": "fa-temperature-arrow-up", "color": "warning", "type": "ir", "device": "ac", "code": "temp_up"},
+    {"id": 2, "label": "TEPLOTA -", "icon": "fa-temperature-arrow-down", "color": "info", "type": "ir", "device": "ac", "code": "temp_down"},
+    {"id": 3, "label": "ZPĚT", "icon": "fa-arrow-left", "color": "secondary", "type": "back"}
+]
+
+# Podmenu 3: Dálkový ovladač pro RÁDIO
+MENU_RADIO_CONTROLS = [
+    {"id": 0, "label": "ZAP/VYP", "icon": "fa-power-off", "color": "danger", "type": "ir", "device": "radio", "code": "power"},
+    {"id": 1, "label": "STANICE +", "icon": "fa-forward-step", "color": "info", "type": "ir", "device": "radio", "code": "ch_up"},
+    {"id": 2, "label": "STANICE -", "icon": "fa-backward-step", "color": "info", "type": "ir", "device": "radio", "code": "ch_down"},
+    {"id": 3, "label": "HLASITOST +", "icon": "fa-volume-high", "color": "secondary", "type": "ir", "device": "radio", "code": "vol_up"},
+    {"id": 4, "label": "HLASITOST -", "icon": "fa-volume-low", "color": "secondary", "type": "ir", "device": "radio", "code": "vol_down"},
+    {"id": 5, "label": "ZPĚT", "icon": "fa-arrow-left", "color": "secondary", "type": "back"}
+]
+
+# Podmenu 4: Dálkový ovladač pro LED PÁSKY
+MENU_LED_CONTROLS = [
+    {"id": 0, "label": "ZAP/VYP", "icon": "fa-power-off", "color": "danger", "type": "ir", "device": "led", "code": "power"},
+    {"id": 1, "label": "JAS +", "icon": "fa-sun", "color": "warning", "type": "ir", "device": "led", "code": "bright_up"},
+    {"id": 2, "label": "JAS -", "icon": "fa-moon", "color": "info", "type": "ir", "device": "led", "code": "bright_down"},
+    {"id": 3, "label": "BARVA", "icon": "fa-palette", "color": "success", "type": "ir", "device": "led", "code": "color_next"},
+    {"id": 4, "label": "ZPĚT", "icon": "fa-arrow-left", "color": "secondary", "type": "back"}
 ]
 
 # Slovník všech menu pro snadné přepínání podle jména
 MENUS = {
     "home": MENU_HOME,
-    "tv_controls": MENU_TV_CONTROLS
+    "tv_controls": MENU_TV_CONTROLS,
+    "ac_controls": MENU_AC_CONTROLS,
+    "radio_controls": MENU_RADIO_CONTROLS,
+    "led_controls": MENU_LED_CONTROLS
 }
 
-# Tyto značky systém prohledá a "vybombarduje" jejich kódy postupně
-AVAILABLE_BRANDS = ["tcl", "sony", "samsung"]
+# Samostatné seznamy pro "kobercový nálet"
+AVAILABLE_TV_BRANDS = ["tcl", "sony", "samsung"]
+AVAILABLE_AC_BRANDS = ["lg", "daikin", "samsung", "panasonic"] # Zatím jen příprava, upravíš si podle sebe
+AVAILABLE_RADIO_BRANDS = ["sony", "panasonic", "philips"]
+AVAILABLE_LED_BRANDS = ["rgb_generic_1", "rgb_generic_2"]
 
 # --- CENTRÁLNÍ STAV SYSTÉMU ---
 system_state = {
-    "current_menu": MENU_HOME,   # Aktuálně zobrazené menu
-    "menu_history": [],          # PAMĚŤ (zásobník) pro návrat zpět
-    "selected_index": 0,         # Pozice kurzoru (joysticku)
-    "message": "Připraveno",     # Text v horní liště
-    "connection": "SLEEP",       # Stav spojení Bluetooth
-    "last_action": 0             # Čas poslední akce pro animaci probliknutí
+    "current_menu": MENU_HOME,
+    "menu_history": [],
+    "selected_index": 0,
+    "message": "Připraveno",
+    "connection": "SLEEP",
+    "last_action": 0
 }
 
 # --- FUNKCE PRO ZÁPIS DO DENÍČKU ---
@@ -77,27 +113,15 @@ def on_message(client, userdata, msg):
 def process_command(cmd):
     log_activity(f"Přijat příkaz od pacienta: {cmd}")
     
-    # NAHORU = Návrat o úroveň výš (Zpět)
-    if cmd == "UP": 
-        go_back()
-        
-    # DOPRAVA = Další karta
-    elif cmd == "RIGHT": 
-        move_selection(1)
-        
-    # DOLEVA = Předchozí karta
-    elif cmd == "LEFT": 
-        move_selection(-1)
-        
-    # DOLŮ = Potvrzení / Vstup do podmenu
-    elif cmd == "DOWN" or cmd == "SELECT": 
-        trigger_action()
+    if cmd == "UP": go_back()
+    elif cmd == "RIGHT": move_selection(1)
+    elif cmd == "LEFT": move_selection(-1)
+    elif cmd == "DOWN" or cmd == "SELECT": trigger_action()
 
 def move_selection(direction):
     menu_len = len(system_state["current_menu"])
     system_state["selected_index"] = (system_state["selected_index"] + direction) % menu_len
 
-# Funkce pro NÁVRAT ZPĚT v historii stromu
 def go_back():
     if len(system_state["menu_history"]) > 0:
         prev_state = system_state["menu_history"].pop()
@@ -114,16 +138,14 @@ def trigger_action():
     
     system_state["last_action"] = time.time()
     
-    # 1. POHYB VE STROMU (Vstup do podmenu)
+    # 1. POHYB VE STROMU
     if item.get("type") == "submenu":
         system_state["menu_history"].append({
             "menu": system_state["current_menu"],
             "index": system_state["selected_index"],
             "message": system_state["message"]
         })
-        
         system_state["message"] = f"Menu: {item['label']}"
-            
         target_menu = item["target"]
         system_state["current_menu"] = MENUS[target_menu]
         system_state["selected_index"] = 0
@@ -147,19 +169,35 @@ def trigger_action():
         except: pass
         system_state["message"] = "Zvonek aktivován!"
 
-    # 5. IR VYSÍLÁNÍ (Televize) - KOBERCOVÝ NÁLET
+    # 5. IR VYSÍLÁNÍ (Televize, Klimatizace, Rádia, LED) - KOBERCOVÝ NÁLET
     elif item.get("type") == "ir":
         code_file = item['code']
-        system_state["message"] = f"TV: {item['label']}"
+        device_type = item.get('device', 'tv') # Zjistíme, jestli jde o TV nebo Klímu (výchozí je TV)
         
-        # Postupně odešle kód pro VŠECHNY dostupné značky
-        for brand in AVAILABLE_BRANDS:
-            path = f"/home/lukas/rpi/ir_codes/{brand}/{code_file}.txt"
-            print(f"IR Vysílání ({brand}): {path}")
+        # Rozhodneme se, jaké značky střílet a v jaké složce je hledat
+        if device_type == "tv":
+            brands = AVAILABLE_TV_BRANDS
+            folder_path = "" # Cesta zůstává stejná: /ir_codes/sony/
+            system_state["message"] = f"TV: {item['label']}"
+        elif device_type == "ac":
+            brands = AVAILABLE_AC_BRANDS
+            folder_path = "ac/" # Kódy pro klímu budou v podsložce: /ir_codes/ac/daikin/
+            system_state["message"] = f"KLÍMA: {item['label']}"
+        elif device_type == "radio":
+            brands = AVAILABLE_RADIO_BRANDS
+            folder_path = "radio/" # Kódy pro rádio: /ir_codes/radio/sony/
+            system_state["message"] = f"RÁDIO: {item['label']}"
+        elif device_type == "led":
+            brands = AVAILABLE_LED_BRANDS
+            folder_path = "led/" # Kódy pro led: /ir_codes/led/rgb_generic_1/
+            system_state["message"] = f"LED: {item['label']}"
+        
+        # Postupně odešle kód pro VŠECHNY dostupné značky v dané kategorii
+        for brand in brands:
+            path = f"/home/lukas/rpi/ir_codes/{folder_path}{brand}/{code_file}.txt"
+            print(f"IR Vysílání ({device_type.upper()} - {brand}): {path}")
             try: 
                 subprocess.run(["ir-ctl", "-d", "/dev/lirc0", "--send", path])
-                # Velmi důležitá pauza! Bez ní by systém poslal kódy příliš rychle
-                # a mohly by se signály slít do jednoho nesrozumitelného.
                 time.sleep(0.3) 
             except Exception as e: 
                 print(f"Chyba IR ({brand}): {e}")
