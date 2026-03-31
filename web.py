@@ -1,17 +1,17 @@
 # IMPORTY KNIHOVEN
-from flask import Flask, render_template, jsonify, request # Flask = framework pro tvorbu webového serveru
-import paho.mqtt.client as mqtt # Knihovna pro naslouchání a posílání zpráv přes MQTT (komunikace s BLE Bridge a Zigbee)
-import threading                # Umožňuje spouštět věci na pozadí (tzv. vlákna), aby se web nezasekl
-import time                     # Práce s časem (pauzy, zaznamenávání času poslední akce)
-import subprocess               # Umožňuje spouštět systémové příkazy Linuxu (potřebujeme pro IR vysílač ir-ctl)
-import datetime                 # Knihovna pro práci s datem a časem (potřebná pro logování)
+from flask import Flask, render_template, jsonify, request
+import paho.mqtt.client as mqtt
+import threading
+import time
+import subprocess
+import datetime
 
 # Vytvoření instance webové aplikace
 app = Flask(__name__)
 
-# --- DEFINICE MENU (Karty) ---
-# Tyto seznamy definují, jaké karty se zobrazí na obrazovce. 
-# Obsahují ikony (z FontAwesome), barvy (z Bootstrapu) a hlavně "typ" akce.
+# --- DEFINICE STROMOVÉHO MENU ---
+# Nový systém podporuje vnořování. Typ "submenu" nás přesměruje do jiného seznamu.
+# Typ "back" nás vrátí o úroveň výš.
 
 MENU_HOME = [
     {"id": 0, "label": "MÁM ŽÍZEŇ", "icon": "fa-glass-water", "color": "primary", "type": "req"},
@@ -19,206 +19,186 @@ MENU_HOME = [
     {"id": 2, "label": "SVĚTLO", "icon": "fa-lightbulb", "color": "success", "type": "zigbee"},
     {"id": 3, "label": "ZVONEK", "icon": "fa-bell", "color": "info", "type": "zigbee_bell"},
     {"id": 4, "label": "POMOC", "icon": "fa-hand-holding-medical", "color": "danger", "type": "req"},
-    {"id": 5, "label": "ZRUŠIT", "icon": "fa-rotate-left", "color": "secondary", "type": "cancel"}
+    # Přímý vstup do sekce televize - už žádný výběr značek
+    {"id": 5, "label": "TELEVIZE", "icon": "fa-tv", "color": "secondary", "type": "submenu", "target": "tv_controls"}
 ]
 
-MENU_TV = [
-    # Typ 'ir' znamená, že při výběru se pošle infračervený signál. "code" odpovídá názvu .txt souboru z nahrávání.
+# Podmenu: Samotný univerzální dálkový ovladač
+MENU_TV_CONTROLS = [
     {"id": 0, "label": "ZAP/VYP", "icon": "fa-power-off", "color": "danger", "type": "ir", "code": "power"},
     {"id": 1, "label": "PROGRAM +", "icon": "fa-arrow-up", "color": "info", "type": "ir", "code": "ch_up"},
     {"id": 2, "label": "PROGRAM -", "icon": "fa-arrow-down", "color": "info", "type": "ir", "code": "ch_down"},
     {"id": 3, "label": "HLASITOST +", "icon": "fa-volume-high", "color": "secondary", "type": "ir", "code": "vol_up"},
-    {"id": 4, "label": "HLASITOST -", "icon": "fa-volume-low", "color": "secondary", "type": "ir", "code": "vol_down"}
+    {"id": 4, "label": "HLASITOST -", "icon": "fa-volume-low", "color": "secondary", "type": "ir", "code": "vol_down"},
+    {"id": 5, "label": "ZPĚT", "icon": "fa-arrow-left", "color": "secondary", "type": "back"}
 ]
 
-# Seznam podporovaných televizí (odpovídá složkám v /home/lukas/rpi/ir_codes/)
-AVAILABLE_BRANDS = ["tcl", "sony", "samsung"]
-
-# --- CENTRÁLNÍ STAV SYSTÉMU (Trezor paměti) ---
-# Tento slovník (dict) si pamatuje aktuální situaci. Webová stránka (HTML/JS) se na něj 
-# každých 300 milisekund ptá, aby věděla, co má vykreslit.
-system_state = {
-    "mode": "home",              # Aktuální režim obrazovky ('home' pro požadavky, 'tv' pro televizi)
-    "current_menu": MENU_HOME,   # Které menu se má zrovna zobrazovat
-    "selected_index": 0,         # Která karta je právě zvýrazněná (vybraná joystickem)
-    "message": "Připraveno",     # Text, který svítí v horní liště (např. "Vybráno: MÁM ŽÍZEŇ")
-    "connection": "SLEEP",       # Stav Bluetooth spojení (aktualizováno z ble_bridge)
-    "tv_brand": "tcl",           # Jaká značka televize je aktuálně zvolená v roletce
-    "last_action": 0             # Čas (timestamp) posledního potvrzení (spouští animaci probliknutí karty)
+# Slovník všech menu pro snadné přepínání podle jména
+MENUS = {
+    "home": MENU_HOME,
+    "tv_controls": MENU_TV_CONTROLS
 }
 
-# --- FUNKCE PRO ZÁPIS DO DENÍČKU (LOGOVÁNÍ) ---
-# Zapisuje veškerou aktivitu do souboru. Výborné pro test baterie i pro dlouhodobý dohled.
+# Tyto značky systém prohledá a "vybombarduje" jejich kódy postupně
+AVAILABLE_BRANDS = ["tcl", "sony", "samsung"]
+
+# --- CENTRÁLNÍ STAV SYSTÉMU ---
+system_state = {
+    "current_menu": MENU_HOME,   # Aktuálně zobrazené menu
+    "menu_history": [],          # PAMĚŤ (zásobník) pro návrat zpět
+    "selected_index": 0,         # Pozice kurzoru (joysticku)
+    "message": "Připraveno",     # Text v horní liště
+    "connection": "SLEEP",       # Stav spojení Bluetooth
+    "last_action": 0             # Čas poslední akce pro animaci probliknutí
+}
+
+# --- FUNKCE PRO ZÁPIS DO DENÍČKU ---
 def log_activity(action):
-    # Získání aktuálního data a času ve formátu "ROK-MĚSÍC-DEN HODINA:MINUTA:SEKUNDA"
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    # Otevření souboru v režimu "a" (append - přidávání nakonec, nemaže stará data)
     with open("/home/lukas/rpi/aktivita_systemu.log", "a") as f:
         f.write(f"[{timestamp}] - {action}\n")
     print(f"Zapsáno do logu: [{timestamp}] - {action}")
 
-# --- MQTT LOGIKA (Zpracování zpráv z Bluetooth) ---
-# Funkce, která se zavolá automaticky POKAŽDÉ, když od ble_bridge přijde nějaká zpráva
+# --- MQTT LOGIKA ---
 def on_message(client, userdata, msg):
     try:
         topic = msg.topic
-        payload = msg.payload.decode() # Převod z bytů na normální text (string)
+        payload = msg.payload.decode()
         if topic == "joystick/status":
-            # Přišla zpráva o stavu BT připojení (SLEEP, CONNECTING, READY)
             system_state["connection"] = payload
-            # NOVÉ: Pokud se systém právě připojil, zaznamenáme to
             if payload == "READY":
                 log_activity("Ovladač se úspěšně připojil.")
-            
+                
         elif topic == "joystick/command":
-            # Přišel povel z joysticku (UP, DOWN, LEFT, RIGHT). Jdeme ho zpracovat.
             process_command(payload)
     except Exception as e: print(e)
 
-# Mozek ovládání - překlad směrů páčky na konkrétní akce v menu
+# Mozek ovládání s NOVOU logikou stromu
 def process_command(cmd):
-    # Zaznamenáme každý jednotlivý pohyb páčky do deníčku
     log_activity(f"Přijat příkaz od pacienta: {cmd}")
     
-    # 1. NAHORU = Tlačítko pro přepnutí mezi obrazovkami (Zdravotní vs. Televize)
+    # NAHORU = Návrat o úroveň výš (Zpět)
     if cmd == "UP": 
-        toggle_mode()
+        go_back()
         
-    # 2. DOPRAVA = Posun zvýraznění na další kartu
+    # DOPRAVA = Další karta
     elif cmd == "RIGHT": 
         move_selection(1)
         
-    # 3. DOLEVA = Posun zvýraznění na předchozí kartu
+    # DOLEVA = Předchozí karta
     elif cmd == "LEFT": 
         move_selection(-1)
         
-    # 4. DOLŮ = Tlačítko pro "ENTER" / Potvrzení vybrané karty
+    # DOLŮ = Potvrzení / Vstup do podmenu
     elif cmd == "DOWN" or cmd == "SELECT": 
         trigger_action()
 
-# Matematika posunu kurzoru
 def move_selection(direction):
     menu_len = len(system_state["current_menu"])
-    # Zbytek po dělení (%) zajistí, že když přejedeme konec, kurzor přeskočí zpět na začátek (tzv. rotace)
     system_state["selected_index"] = (system_state["selected_index"] + direction) % menu_len
 
-# Přepínání hlavní obrazovky
-def toggle_mode():
-    if system_state["mode"] == "home":
-        # Pokud jsme byli doma, přepneme na TV
-        system_state["mode"] = "tv"
-        system_state["current_menu"] = MENU_TV
-        system_state["message"] = f"Režim: TV ({system_state['tv_brand'].upper()})"
+# Funkce pro NÁVRAT ZPĚT v historii stromu
+def go_back():
+    if len(system_state["menu_history"]) > 0:
+        prev_state = system_state["menu_history"].pop()
+        system_state["current_menu"] = prev_state["menu"]
+        system_state["selected_index"] = prev_state["index"]
+        system_state["message"] = prev_state["message"]
     else:
-        # Pokud jsme byli u TV, přepneme domů
-        system_state["mode"] = "home"
-        system_state["current_menu"] = MENU_HOME
-        system_state["message"] = "Režim: POŽADAVKY"
-    # Při změně režimu kurzor vždy zresetujeme na první kartu (index 0)
-    system_state["selected_index"] = 0
+        system_state["message"] = "Jste v hlavním menu"
 
-# --- VYKONÁNÍ AKCE (Potvrzení karty) ---
+# --- VYKONÁNÍ AKCE ---
 def trigger_action():
-    # Najdeme kartu, na které pacient právě stojí
     idx = system_state["selected_index"]
     item = system_state["current_menu"][idx]
     
-    # Zaznamenáme přesný čas. HTML si toho všimne a spustí zelené probliknutí karty.
     system_state["last_action"] = time.time()
     
-    # --- REŽIM 1: BĚŽNÉ POŽADAVKY (HOME) ---
-    if system_state["mode"] == "home":
-        if item.get("type") == "cancel":
-            system_state["message"] = "Připraveno"  # Zrušení všech požadavků
+    # 1. POHYB VE STROMU (Vstup do podmenu)
+    if item.get("type") == "submenu":
+        system_state["menu_history"].append({
+            "menu": system_state["current_menu"],
+            "index": system_state["selected_index"],
+            "message": system_state["message"]
+        })
+        
+        system_state["message"] = f"Menu: {item['label']}"
             
-        elif item.get("type") == "zigbee":
-            # Ovládání chytré domácnosti přes Zigbee2MQTT
-            # Odesíláme zprávu "TOGGLE" (přepnout stav - pokud svítí, zhasne a naopak)
-            try: mqtt_client.publish("zigbee2mqtt/zasuvka/set", '{"state": "TOGGLE"}')
-            except: pass
+        target_menu = item["target"]
+        system_state["current_menu"] = MENUS[target_menu]
+        system_state["selected_index"] = 0
+        
+    # 2. TLAČÍTKO ZPĚT
+    elif item.get("type") == "back":
+        go_back()
 
-        elif item.get("type") == "zigbee_bell":
-            # Ovládání chytrého zvonku (sirény) přes Zigbee2MQTT
-            # Odesíláme JSON zprávu k aktivaci zvonění. POUZOR: JSON se může drobně lišit podle modelu zvonku.
-            try: mqtt_client.publish("zigbee2mqtt/zvonek/set", '{"state": "ON"}')
-            except: pass
-            
-        else:
-            # Běžný požadavek (Žízeň, Hlad). Změníme text v horní liště,
-            # aby na to mohl pečovatel zareagovat.
-            system_state["message"] = f"Vybráno: {item['label']}"
+    # 3. ZÁKLADNÍ POŽADAVKY
+    elif item.get("type") == "req":
+        system_state["message"] = f"Vybráno: {item['label']}"
+        
+    # 4. ZIGBEE OVLÁDÁNÍ
+    elif item.get("type") == "zigbee":
+        try: mqtt_client.publish("zigbee2mqtt/zasuvka/set", '{"state": "TOGGLE"}')
+        except: pass
+        system_state["message"] = "Světlo přepnuto"
 
-    # --- REŽIM 2: OVLÁDÁNÍ TELEVIZE (TV) ---
-    elif system_state["mode"] == "tv":
-        if item.get("type") == "ir":
-            brand = system_state['tv_brand'] # Podle roletky zjistíme aktuální značku
-            code_file = item['code']         # Např. 'power', 'vol_up'
-            # Složíme cestu k fyzickému .txt souboru, který jsme nahráli přes skript
+    elif item.get("type") == "zigbee_bell":
+        try: mqtt_client.publish("zigbee2mqtt/zvonek/set", '{"state": "ON"}')
+        except: pass
+        system_state["message"] = "Zvonek aktivován!"
+
+    # 5. IR VYSÍLÁNÍ (Televize) - KOBERCOVÝ NÁLET
+    elif item.get("type") == "ir":
+        code_file = item['code']
+        system_state["message"] = f"TV: {item['label']}"
+        
+        # Postupně odešle kód pro VŠECHNY dostupné značky
+        for brand in AVAILABLE_BRANDS:
             path = f"/home/lukas/rpi/ir_codes/{brand}/{code_file}.txt"
-            
-            print(f"IR Vysílání: {path}")
-            # Spuštění systémového příkazu Linuxu pro odpálení infračervené diody
-            try: subprocess.run(["ir-ctl", "-d", "/dev/lirc0", "--send", path])
-            except Exception as e: print(f"Chyba IR: {e}")
+            print(f"IR Vysílání ({brand}): {path}")
+            try: 
+                subprocess.run(["ir-ctl", "-d", "/dev/lirc0", "--send", path])
+                # Velmi důležitá pauza! Bez ní by systém poslal kódy příliš rychle
+                # a mohly by se signály slít do jednoho nesrozumitelného.
+                time.sleep(0.3) 
+            except Exception as e: 
+                print(f"Chyba IR ({brand}): {e}")
 
 # --- START SLUŽEB NA POZADÍ ---
-# Nastavení MQTT klienta s nejnovější specifikací API
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-mqtt_client.on_message = on_message # Provázání s naší funkcí výše
+mqtt_client.on_message = on_message
 
-# Funkce, která běží v samostatném vlákně a neustále naslouchá MQTT zprávám
 def start_mqtt():
     while True:
         try:
-            mqtt_client.connect("localhost", 1883, 60) # Připojení k lokálnímu brokerovy
-            mqtt_client.subscribe("joystick/#")        # Odběr VŠECH témat začínajících "joystick/"
-            mqtt_client.loop_forever()                 # Nekonečná smyčka
-        except: time.sleep(5)                          # Pokud broker spadne, zkusíme to znovu za 5s
+            mqtt_client.connect("localhost", 1883, 60)
+            mqtt_client.subscribe("joystick/#")
+            mqtt_client.loop_forever()
+        except: time.sleep(5)
 
-# --- FLASK WEBOVÉ CESTY (API a zobrazení) ---
-# Hlavní stránka (Když do prohlížeče zadáš IP adresu RPi)
+# --- FLASK API ---
 @app.route('/')
 def index():
-    # Vykreslí HTML šablonu a předá jí seznam televizí pro roletku
-    return render_template('index.html', brands=AVAILABLE_BRANDS, current_brand=system_state["tv_brand"])
+    return render_template('index.html')
 
-# Tuto adresu volá javascript z HTML každých 300ms (tzv. Polling)
 @app.route('/api/status')
 def get_status():
-    # Odesíláme celý náš "trezor" zabalený jako JSON (srozumitelné pro Javascript)
     return jsonify(system_state)
 
-# Tuto adresu volá HTML, když pečovatel klikne na kartu myší nebo prstem
 @app.route('/api/click/<int:index>', methods=['POST'])
 def web_click(index):
-    system_state["selected_index"] = index # Přesuneme kurzor na kliknutou kartu
-    trigger_action()                       # Provedeme akci stejně, jako by ji udělal joystick
+    if 0 <= index < len(system_state["current_menu"]):
+        system_state["selected_index"] = index
+        trigger_action()
     return jsonify({"status": "ok"})
 
-# Zrušení zprávy přes tlačítko "VYŘÍZENO"
 @app.route('/api/reset', methods=['POST'])
 def reset_message():
     system_state["message"] = "Připraveno"
     return jsonify({"status": "reset"})
 
-# Uložení značky TV po výběru v roletce na webu
-@app.route('/api/set_brand/<brand>', methods=['POST'])
-def set_brand(brand):
-    # Ochrana proti hackerům (přijmeme jen značky, které známe)
-    if brand in AVAILABLE_BRANDS:
-        system_state["tv_brand"] = brand
-        # Pokud je zrovna zapnutý režim TV, rovnou přepíšeme i text nahoře
-        if system_state["mode"] == "tv":
-            system_state["message"] = f"Režim: TV ({brand.upper()})"
-    return jsonify({"status": "ok"})
-
 # --- SPUŠTĚNÍ CELÉ APLIKACE ---
 if __name__ == '__main__':
-    # Hned po startu Raspberry napíšeme do logu oddělovací čáru pro přehlednost
     log_activity("--- SYSTÉM NASTARTOVÁN ---")
-    
-    # 1. Spustíme MQTT pošťáka v samostatném vlákně (aby nebrzdil web)
     threading.Thread(target=start_mqtt, daemon=True).start()
-    
-    # 2. Spustíme samotný webový server na portu 5000 (přístupný pro celou síť)
     app.run(host='0.0.0.0', port=5000, debug=False)
