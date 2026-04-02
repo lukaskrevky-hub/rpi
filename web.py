@@ -46,14 +46,22 @@ MENU_DEVICES = [
     {"id": 4, "label": "DOMŮ", "icon": "fa-house", "color": "secondary", "type": "back"}
 ]
 
-# Podmenu: Ovládání Televize
+# Podmenu: Ovládání Televize (Přidány směrové šipky a potvrzení OK)
 MENU_TV_CONTROLS = [
     {"id": 0, "label": "ZAP/VYP", "icon": "fa-power-off", "color": "danger", "type": "ir", "device": "tv", "code": "power"},
     {"id": 1, "label": "PROGRAM +", "icon": "fa-arrow-up", "color": "info", "type": "ir", "device": "tv", "code": "ch_up"},
     {"id": 2, "label": "PROGRAM -", "icon": "fa-arrow-down", "color": "info", "type": "ir", "device": "tv", "code": "ch_down"},
     {"id": 3, "label": "HLASITOST +", "icon": "fa-volume-high", "color": "secondary", "type": "ir", "device": "tv", "code": "vol_up"},
     {"id": 4, "label": "HLASITOST -", "icon": "fa-volume-low", "color": "secondary", "type": "ir", "device": "tv", "code": "vol_down"},
-    {"id": 5, "label": "ZPĚT", "icon": "fa-arrow-left", "color": "secondary", "type": "back"}
+    {"id": 5, "label": "NAHORU", "icon": "fa-chevron-up", "color": "primary", "type": "ir", "device": "tv", "code": "up"},
+    {"id": 6, "label": "DOLŮ", "icon": "fa-chevron-down", "color": "primary", "type": "ir", "device": "tv", "code": "down"},
+    {"id": 7, "label": "DOLEVA", "icon": "fa-chevron-left", "color": "primary", "type": "ir", "device": "tv", "code": "left"},
+    {"id": 8, "label": "DOPRAVA", "icon": "fa-chevron-right", "color": "primary", "type": "ir", "device": "tv", "code": "right"},
+    {"id": 9, "label": "OK", "icon": "fa-circle-check", "color": "success", "type": "ir", "device": "tv", "code": "ok"},
+    {"id": 10, "label": "TV ZPĚT", "icon": "fa-rotate-left", "color": "warning", "type": "ir", "device": "tv", "code": "tv_back"},
+    {"id": 11, "label": "TV DOMŮ", "icon": "fa-house", "color": "warning", "type": "ir", "device": "tv", "code": "tv_home"},
+    {"id": 12, "label": "SEZNAM KANÁLŮ", "icon": "fa-list", "color": "info", "type": "ir", "device": "tv", "code": "guide"},
+    {"id": 13, "label": "ZPĚT", "icon": "fa-arrow-left", "color": "secondary", "type": "back"}
 ]
 
 # Podmenu: Ovládání Klimatizace
