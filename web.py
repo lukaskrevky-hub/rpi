@@ -17,6 +17,7 @@ import threading                 # Umožňuje běh MQTT klienta v odděleném vl
 import time                      # Slouží pro časování (např. nezbytné prodlevy při sekvenčním vysílání IR kódů)
 import subprocess                # Umožňuje volání systémových příkazů OS Linux (zde pro obsluhu IR vysílače)
 import datetime                  # Práce s reálným časem pro účely přesného logování událostí
+import os                        # Přidáno pro ověřování fyzické existence nahraných IR souborů
 
 # Inicializace instance webového serveru Flask
 app = Flask(__name__)
@@ -24,8 +25,6 @@ app = Flask(__name__)
 # ==========================================
 # 1. DEFINICE STROMOVÉHO MENU A UŽIVATELSKÉHO ROZHRANÍ
 # ==========================================
-# Následující datové struktury (seznamy slovníků) definují jednotlivé obrazovky uživatelského rozhraní.
-# Každá položka obsahuje metadata pro frontend (ikona, barva) a funkční parametry (typ akce, cíl podmenu).
 
 # Hlavní obrazovka 1: Běžné požadavky (Výchozí stav)
 MENU_HOME = [
@@ -46,7 +45,7 @@ MENU_DEVICES = [
     {"id": 4, "label": "DOMŮ", "icon": "fa-house", "color": "secondary", "type": "back"}
 ]
 
-# Podmenu: Ovládání Televize (Přidány směrové šipky a potvrzení OK)
+# Podmenu: Ovládání Televize (Komplexní ovladač se směrovými šipkami)
 MENU_TV_CONTROLS = [
     {"id": 0, "label": "ZAP/VYP", "icon": "fa-power-off", "color": "danger", "type": "ir", "device": "tv", "code": "power"},
     {"id": 1, "label": "PROGRAM +", "icon": "fa-arrow-up", "color": "info", "type": "ir", "device": "tv", "code": "ch_up"},
@@ -274,12 +273,22 @@ def trigger_action():
         # pro všechny značky v definované kategorii s nutnou pauzou proti zarušení IR spektra.
         for brand in brands:
             path = f"/home/lukas/rpi/ir_codes/{device_type}/{brand}/{code_file}.txt"
+            
+            # --- BEZPEČNOSTNÍ POJISTKA ---
+            # Zkontroluje, zda soubor s kódem na disku opravdu existuje.
+            # Tím se zabrání zbytečným pádům programu u nekompletně nahraných ovladačů
+            # a přeskočí se značky, které pro dané tlačítko nemají nahraný soubor.
+            if not os.path.exists(path):
+                print(f"VAROVÁNÍ: IR Soubor nenalezen (přeskakuji) - {path}")
+                continue
+                
             print(f"IR Vysílání ({device_type.upper()} - {brand}): {path}")
             try: 
                 # Synchronní exekuce subprocesu LIRC pro odeslání infračerveného signálu
                 subprocess.run(["ir-ctl", "-d", "/dev/lirc0", "--send", path], check=True)
                 time.sleep(0.3) # Ochranná prodleva pro spolehlivé přečtení kódu přijímačem
-            except Exception as e: print(e)
+            except Exception as e: 
+                print(f"Chyba při odesílání IR: {e}")
 
 # ==========================================
 # 6. INICIALIZACE MQTT KLIENTA NA POZADÍ
