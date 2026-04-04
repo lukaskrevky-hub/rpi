@@ -45,7 +45,7 @@ MENU_DEVICES = [
     {"id": 4, "label": "DOMŮ", "icon": "fa-house", "color": "secondary", "type": "back"}
 ]
 
-# Podmenu: Ovládání Televize (Komplexní ovladač se směrovými šipkami)
+# Podmenu: Ovládání Televize
 MENU_TV_CONTROLS = [
     {"id": 0, "label": "ZAP/VYP", "icon": "fa-power-off", "color": "danger", "type": "ir", "device": "tv", "code": "power"},
     {"id": 1, "label": "PROGRAM +", "icon": "fa-arrow-up", "color": "info", "type": "ir", "device": "tv", "code": "ch_up"},
@@ -63,12 +63,13 @@ MENU_TV_CONTROLS = [
     {"id": 13, "label": "ZPĚT", "icon": "fa-arrow-left", "color": "secondary", "type": "back"}
 ]
 
-# Podmenu: Ovládání Klimatizace
+# Podmenu: Ovládání Klimatizace (Rozděleno na Zapnout a Vypnout)
 MENU_AC_CONTROLS = [
-    {"id": 0, "label": "ZAP/VYP", "icon": "fa-power-off", "color": "danger", "type": "ir", "device": "ac", "code": "power"},
-    {"id": 1, "label": "TEPLOTA +", "icon": "fa-temperature-arrow-up", "color": "warning", "type": "ir", "device": "ac", "code": "temp_up"},
-    {"id": 2, "label": "TEPLOTA -", "icon": "fa-temperature-arrow-down", "color": "info", "type": "ir", "device": "ac", "code": "temp_down"},
-    {"id": 3, "label": "ZPĚT", "icon": "fa-arrow-left", "color": "secondary", "type": "back"}
+    {"id": 0, "label": "ZAPNOUT", "icon": "fa-power-off", "color": "success", "type": "ir", "device": "ac", "code": "power_on"},
+    {"id": 1, "label": "VYPNOUT", "icon": "fa-power-off", "color": "danger", "type": "ir", "device": "ac", "code": "power_off"},
+    {"id": 2, "label": "TEPLOTA +", "icon": "fa-temperature-arrow-up", "color": "warning", "type": "ir", "device": "ac", "code": "temp_up"},
+    {"id": 3, "label": "TEPLOTA -", "icon": "fa-temperature-arrow-down", "color": "info", "type": "ir", "device": "ac", "code": "temp_down"},
+    {"id": 4, "label": "ZPĚT", "icon": "fa-arrow-left", "color": "secondary", "type": "back"}
 ]
 
 # Podmenu: Ovládání Rádia
@@ -287,8 +288,7 @@ def trigger_action():
                 # Synchronní exekuce subprocesu LIRC pro odeslání infračerveného signálu
                 subprocess.run(["ir-ctl", "-d", "/dev/lirc0", "--send", path], check=True)
                 time.sleep(0.3) # Ochranná prodleva pro spolehlivé přečtení kódu přijímačem
-            except Exception as e: 
-                print(f"Chyba při odesílání IR: {e}")
+            except Exception as e: print(e)
 
 # ==========================================
 # 6. INICIALIZACE MQTT KLIENTA NA POZADÍ
