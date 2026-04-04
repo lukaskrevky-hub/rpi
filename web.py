@@ -103,7 +103,7 @@ MENUS = {
 
 # Konfigurační seznamy podporovaných značek pro sekvenční vysílání IR kódů (tzv. "kobercový nálet")
 AVAILABLE_TV_BRANDS = ["tcl", "sony", "samsung"]
-AVAILABLE_AC_BRANDS = ["toshiba"]
+AVAILABLE_AC_BRANDS = ["toshiba", "mitsubishi"]
 AVAILABLE_RADIO_BRANDS = ["auna", "onkyo"]
 AVAILABLE_LED_BRANDS = ["generic_rgb"]
 
