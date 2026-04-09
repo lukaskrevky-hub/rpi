@@ -39,6 +39,21 @@
             justify-content: center;
         }
         
+        /* --- KOMPAKTNÍ REŽIM (Pro menu s mnoha položkami jako TV) --- */
+        .compact-card {
+            min-height: 120px !important;
+            padding: 10px !important;
+        }
+        .compact-card .icon-large {
+            font-size: 2rem !important;
+            margin-bottom: 5px !important;
+        }
+        .compact-card .card-title {
+            font-size: 0.95rem !important;
+            margin-top: 5px !important;
+            margin-bottom: 0 !important;
+        }
+        
         /* Zvýraznění karty, na které se aktuálně nachází kurzor (joystick) */
         .joystick-active { 
             border-color: #00ff00 !important; 
@@ -125,9 +140,9 @@
     </div>
 
     <!-- Hlavní kontejner pro dynamické vykreslování položek menu -->
-    <div class="container">
+    <div class="container pb-4">
         <!-- Třída 'row' s 'justify-content-center' centruje nevyplněné řádky v mřížce -->
-        <div id="menu-container" class="row justify-content-center g-4"></div>
+        <div id="menu-container" class="row justify-content-center g-3"></div>
     </div>
 
     <!-- ========================================== -->
@@ -180,6 +195,8 @@
                     document.querySelectorAll('.card').forEach((c, idx) => {
                         if (idx === data.selected_index) {
                             c.classList.add('joystick-active');
+                            // AUTOMATICKÉ SCROLLOVÁNÍ: Pokud by karet bylo moc, prohlížeč na ně automaticky sjede
+                            c.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                         } else {
                             c.classList.remove('joystick-active');
                         }
@@ -214,14 +231,21 @@
             const container = document.getElementById('menu-container');
             container.innerHTML = ""; // Úplné vyčištění stávajícího DOM elementu
 
+            // DYNAMICKÁ MŘÍŽKA: Pokud je v menu více než 6 karet, zmenšíme je, aby se vešly na obrazovku
+            const isCompact = menuItems.length > 6;
+            
+            // Normální režim = 2 sloupce na mobilu, 3 na tabletu, 4 na PC
+            // Kompaktní režim = 3 sloupce na mobilu, 4 na tabletu, 6 na PC
+            const colClass = isCompact ? "col-4 col-md-3 col-lg-2" : "col-6 col-md-4 col-lg-3";
+            const cardClass = isCompact ? "compact-card" : "";
+
             menuItems.forEach((item, index) => {
-                // Kombinace tříd Bootstrapu (col-6, col-md-4) zajišťuje korektní škálování napříč displeji
                 const html = `
-                <div class="col-6 col-md-4 col-lg-3">
-                    <div class="card h-100 text-center p-4 text-white" onclick="manualClick(${index})">
-                        <div class="card-body">
+                <div class="${colClass}">
+                    <div class="card h-100 text-center p-3 text-white ${cardClass}" onclick="manualClick(${index})">
+                        <div class="card-body d-flex flex-column justify-content-center align-items-center p-0">
                             <i class="fa-solid ${item.icon} icon-large text-${item.color}"></i>
-                            <h4 class="card-title mt-3">${item.label}</h4>
+                            <h4 class="card-title mt-2">${item.label}</h4>
                         </div>
                     </div>
                 </div>`;
