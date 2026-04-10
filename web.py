@@ -296,17 +296,23 @@ def trigger_action():
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 mqtt_client.on_message = on_message
 
+# Provede se VŽDY, když se úspěšně naváže (nebo obnoví) spojení
+def on_connect(client, userdata, flags, reason_code, properties):
+    print(f"MQTT připojeno! Registruji odběr témat...")
+    client.subscribe("joystick/#")
+
+# Propojení funkce s MQTT klientem
+mqtt_client.on_connect = on_connect
+
 def start_mqtt():
     """Udržuje trvalé spojení s lokálním MQTT brokerem ve vyhrazeném vlákně."""
     while True:
         try:
-            print("Pokus o připojení k MQTT brokeru...")
+            # Zde už jen voláme connect a loop. Subscribe se zavolá sám přes on_connect!
             mqtt_client.connect("localhost", 1883, 60)
-            mqtt_client.subscribe("joystick/#")
-            print("MQTT připojeno, naslouchám...")
             mqtt_client.loop_forever()
         except Exception as e: 
-            print(f"MQTT připojení selhalo ({e}), zkouším to znovu za 5 vteřin...")
+            print(f"Chyba MQTT: {e}, obnova za 5s...")
             time.sleep(5)
 
 # ==========================================
