@@ -69,11 +69,17 @@ def disconnected_callback(client_ble):
 
 # --- HLAVNÍ BLUETOOTH SMYČKA (SNIPER MODE) ---
 async def connect_and_listen():
+    # --- HARDWARE WARM-UP ---
+    print("Čekám 3 vteřiny na inicializaci Bluetooth adaptéru po startu systému...")
+    await asyncio.sleep(3) 
+    # --------------------------------
+    
     print(f"--- SPUŠTĚN SNIPER REŽIM 5.0 (ANTI-PHANTOM FILTER) NA {TARGET_MAC} ---")
     publish_status("SLEEP")
 
     # Nekonečná smyčka - zaručuje, že RPi bude na ESP32 čekat navždy
     while True:
+        # ... (zbytek tvého kódu zůstává beze změny)
         try:
             # Asynchronní "vlajka", na kterou program čeká, než bude pokračovat
             device_event = asyncio.Event()
