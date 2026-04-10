@@ -67,14 +67,14 @@ def disconnected_callback(client_ble):
     """
     pass # Ignorujeme spam z Linuxu, stav vyřeší smyčka níže
 
-# --- HLAVNÍ BLUETOOTH SMYČKA (SNIPER MODE) ---
+# --- HLAVNÍ BLUETOOTH SMYČKA ---
 async def connect_and_listen():
     # --- HARDWARE WARM-UP ---
     print("Čekám 3 vteřiny na inicializaci Bluetooth adaptéru po startu systému...")
     await asyncio.sleep(3) 
     # --------------------------------
     
-    print(f"--- SPUŠTĚN SNIPER REŽIM 5.0 (ANTI-PHANTOM FILTER) NA {TARGET_MAC} ---")
+    print(f"--- SPUŠTĚN ANTI-PHANTOM FILTER NA {TARGET_MAC} ---")
     publish_status("SLEEP")
 
     # Nekonečná smyčka - zaručuje, že RPi bude na ESP32 čekat navždy
