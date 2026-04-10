@@ -297,13 +297,17 @@ mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 mqtt_client.on_message = on_message
 
 def start_mqtt():
-    """Udržuje trvalé spojení s lokálním MQTT brokerem ve vyhrazeném vlákně (Daemon Thread)."""
+    """Udržuje trvalé spojení s lokálním MQTT brokerem ve vyhrazeném vlákně."""
     while True:
         try:
+            print("Pokus o připojení k MQTT brokeru...")
             mqtt_client.connect("localhost", 1883, 60)
             mqtt_client.subscribe("joystick/#")
+            print("MQTT připojeno, naslouchám...")
             mqtt_client.loop_forever()
-        except: time.sleep(5) # Automatický pokus o obnovu při výpadku služby
+        except Exception as e: 
+            print(f"MQTT připojení selhalo ({e}), zkouším to znovu za 5 vteřin...")
+            time.sleep(5)
 
 # ==========================================
 # 7. FLASK REST API (Komunikační rozhraní pro frontend)
