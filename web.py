@@ -242,12 +242,12 @@ def trigger_action():
     elif item.get("type") == "zigbee":
         try: mqtt_client.publish("zigbee2mqtt/zasuvka/set", '{"state": "TOGGLE"}')
         except: pass
-        system_state["message"] = "Světlo přepnuto"
+        system_state["message"] = "Připraveno"
 
     elif item.get("type") == "zigbee_bell":
         try: mqtt_client.publish("zigbee2mqtt/zvonek/set", '{"state": "ON"}')
         except: pass
-        system_state["message"] = "Zvonek aktivován!"
+        system_state["message"] = "Připraveno"
 
     # 6. INFRAČERVENÉ OVLÁDÁNÍ - SEKVENČNÍ VYSÍLÁNÍ (tzv. "Kobercový nálet")
     elif item.get("type") == "ir":
