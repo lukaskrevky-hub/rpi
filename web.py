@@ -7,7 +7,6 @@ chytrou domácností (přes Zigbee2MQTT) a infračervenými zařízeními (přes
 
 Modul je koncipován jako stavový automat, který na základě vstupů mění svůj vnitřní model
 a poskytuje jej přes REST API asynchronnímu frontendu (polling).
-Rok: 2026
 """
 
 # --- IMPORTY KNIHOVEN ---
