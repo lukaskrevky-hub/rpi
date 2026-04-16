@@ -12,7 +12,7 @@ příkazy a zároveň mu dokáže asynchronně odesílat povely (např. pro OTA 
 # 1. IMPORT POTŘEBNÝCH KNIHOVEN
 # ==========================================
 import asyncio                   # Asynchronní I/O operace (nezbytné pro knihovnu Bleak a neblokující běh)
-import time                      # Časové funkce pro řízení prodlev a filtrování starých paketů
+import time                      # Časové funkce pro řízení prodlev
 from bleak import BleakClient, BleakScanner  # Moderní multiplatformní knihovna pro práci s BLE
 import paho.mqtt.client as mqtt  # Klient pro komunikaci s MQTT brokerem (Mosquitto)
 import sys                       # Systémové funkce (pro bezpečné ukončení skriptu)
@@ -107,7 +107,7 @@ async def connect_and_listen():
     print("Čekám 3 vteřiny na inicializaci Bluetooth adaptéru po startu systému...")
     await asyncio.sleep(3) 
     
-    print(f"--- SPUŠTĚN ANTI-PHANTOM FILTER NA {TARGET_MAC} ---")
+    print(f"--- SPUŠTĚN ROBUSTNÍ ANTI-PHANTOM FILTER NA {TARGET_MAC} ---")
     publish_status("SLEEP")
 
     # Nekonečná smyčka udržující odolnost systému proti výpadkům
@@ -115,36 +115,37 @@ async def connect_and_listen():
         try:
             device_event = asyncio.Event()
             target_device = None
-            scanner_start_time = time.time()
+            ad_count = 0  # Počítadlo přijatých inzertních paketů
 
             def detection_callback(device, advertisement_data):
                 """
                 Funkce volaná Bluetooth adaptérem při detekci jakéhokoliv okolního zařízení.
-                Obsahuje speciální Anti-Phantom filtr.
+                Obsahuje nový, vysoce spolehlivý Anti-Phantom filtr počítající pakety.
                 """
-                nonlocal target_device
+                nonlocal target_device, ad_count
                 if device.address.lower() == TARGET_MAC.lower():
-                    # --- ANTI-PHANTOM FILTER ---
-                    # Linuxový subsystém BlueZ občas do programu vrací "duchové" inzertní 
-                    # pakety z mezipaměti (i když je zařízení fyzicky vypnuté).
-                    # Ignorujeme všechna data v 1. vteřině po startu skeneru, 
-                    # čímž se efektivně zbavíme falešných (starých) detekcí.
-                    if time.time() - scanner_start_time > 1.0:
+                    # --- NOVÝ ANTI-PHANTOM FILTER ---
+                    # Linux (BlueZ) si pamatuje poslední známý paket a pošle nám ho
+                    # hned po spuštění skeneru, i když ESP32 fyzicky tvrdě spí.
+                    # Ignorujeme proto první paket (který může být jen duch z cache). 
+                    # Pokud ESP32 skutečně vysílá, pošle další paket za 30 ms a my ho přijmeme.
+                    ad_count += 1
+                    if ad_count >= 2:
                         target_device = device    
                         device_event.set() # Odblokuje čekání hlavní smyčky       
 
             # Spuštění skenování s naším filtrem
             async with BleakScanner(detection_callback):
-                await device_event.wait() # Čekáme, dokud se ESP32 neprobudí
+                await device_event.wait() # Čekáme, dokud ESP32 fyzicky nezačne vysílat
                 
             publish_status("CONNECTING")
             await asyncio.sleep(0.1)
             
-            # Jakmile je zařízení nalezeno, pokusíme se o rychlé připojení (max 3 pokusy)
-            for attempt in range(3):
+            # Jakmile je zařízení nalezeno, pokusíme se o rychlé připojení 
+            # (Zvýšeno na 5 pokusů a 5 vteřin timeout pro maximální stabilitu)
+            for attempt in range(5):
                 try:
-                    # Rychlé přímé připojení na nalezený objekt s timeoutem 3s
-                    async with BleakClient(target_device, disconnected_callback=disconnected_callback, timeout=3.0) as client_ble:
+                    async with BleakClient(target_device, disconnected_callback=disconnected_callback, timeout=5.0) as client_ble:
                         publish_status("READY") 
                         print("\n+++ PŘIPOJENO! Ovladač je aktivní. +++")
 
@@ -161,23 +162,25 @@ async def connect_and_listen():
                                     await client_ble.write_gatt_char(UART_RX_CHAR_UUID, b"OTA_START")
                                     print("Odeslán příkaz pro OTA na ESP32!")
                             
-                            # Uvolnění vlákna pro asynchronní události
-                            await asyncio.sleep(0.1)
+                            # Uvolnění vlákna a odlehčení CPU (vráceno na osvědčených 0.5s)
+                            await asyncio.sleep(0.5)
                             
-                    break # Pokud spojení proběhlo a následně se korektně ukončilo, opustíme for-cyklus
+                    break # Pokud spojení korektně skončilo (ESP32 usnulo), opustíme for-cyklus
                 except Exception as e:
+                    print(f"Pokus o připojení {attempt+1} selhal: {e}")
                     # Pokud zařízení zmizelo z dosahu před připojením
                     if "was not found" in str(e):
                         break 
-                    await asyncio.sleep(0.2) 
+                    await asyncio.sleep(0.5) 
             
-            # Po rozpadu spojení (např. ESP32 usnulo) přejdeme zpět do módu spánku
+            # Po rozpadu spojení přejdeme zpět do módu spánku
             publish_status("SLEEP")
             await asyncio.sleep(0.2)
             
         except Exception as e:
-            # Zachycení neočekávaných hardwarových chyb adaptéru
-            await asyncio.sleep(0.2)
+            # Zachycení neočekávaných kritických chyb adaptéru
+            print(f"Kritická chyba smyčky: {e}")
+            await asyncio.sleep(0.5)
 
 # ==========================================
 # 6. ENTRY POINT PROGRAMU
