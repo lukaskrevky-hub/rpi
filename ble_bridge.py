@@ -1,48 +1,78 @@
-# Import asynchronních funkcí (umožňuje programu čekat na Bluetooth, aniž by "zamrzl")
-import asyncio
-import time
-# Knihovna Bleak slouží pro komunikaci přes Bluetooth Low Energy (BLE) v Pythonu
-from bleak import BleakClient, BleakScanner
-# Knihovna Paho MQTT pro komunikaci s naším lokálním brokerem
-import paho.mqtt.client as mqtt
-import sys
+"""
+SOFTWAROVÁ BRÁNA (BLE-MQTT BRIDGE) - RASPBERRY PI
+-------------------------------------------------
+Tento skript běží jako služba na pozadí centrální jednotky (Raspberry Pi).
+Plní roli překladače (Bridge) mezi bezdrátovým protokolem Bluetooth Low Energy (BLE)
+a lokální zprávovou sběrnicí MQTT. 
+Zajišťuje automatické znovunavazování spojení s ovladačem (ESP32), přijímá od něj
+příkazy a zároveň mu dokáže asynchronně odesílat povely (např. pro OTA aktualizaci).
+"""
 
-# --- KONFIGURACE HARDWARU A SÍTĚ ---
-# Fyzická adresa ESP32. RPi bude ignorovat všechna ostatní zařízení v dosahu.
+# ==========================================
+# 1. IMPORT POTŘEBNÝCH KNIHOVEN
+# ==========================================
+import asyncio                   # Asynchronní I/O operace (nezbytné pro knihovnu Bleak a neblokující běh)
+import time                      # Časové funkce pro řízení prodlev a filtrování starých paketů
+from bleak import BleakClient, BleakScanner  # Moderní multiplatformní knihovna pro práci s BLE
+import paho.mqtt.client as mqtt  # Klient pro komunikaci s MQTT brokerem (Mosquitto)
+import sys                       # Systémové funkce (pro bezpečné ukončení skriptu)
+import queue                     # Vláknově bezpečná fronta pro přesun dat mezi MQTT vláknem a BLE smyčkou
+
+# ==========================================
+# 2. KONFIGURACE HARDWARU A SÍTĚ
+# ==========================================
+# Fyzická MAC adresa ovladače ESP32 (zajišťuje připojení konkrétního zařízení)
 TARGET_MAC = "10:06:1C:B5:A7:36"
 
-# Unikátní identifikátor (UUID) charakteristiky, přes kterou ESP32 posílá data. 
-# Musí se přesně shodovat s tím, co je v main.py na ESP32.
-UART_TX_CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+# Unikátní identifikátory (UUID) GATT charakteristik (musí se shodovat s ESP32)
+UART_TX_CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E" # Slouží pro PŘÍJEM povelů z joysticku
+UART_RX_CHAR_UUID = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E" # Slouží pro ODESÍLÁNÍ řídících dat do ESP32
 
-# Nastavení MQTT (běží lokálně na samotném Raspberry Pi)
-MQTT_BROKER = "localhost"
-MQTT_TOPIC = "joystick/command"
-TOPIC_STATUS = "joystick/status" 
+# Parametry lokálního MQTT Brokeru
+MQTT_BROKER = "localhost"                 # Broker běží na stejném Raspberry Pi
+MQTT_TOPIC = "joystick/command"           # Téma, kam se posílají stisknuté směry
+TOPIC_STATUS = "joystick/status"          # Téma, kam se zapisuje aktuální stav připojení
 
-# --- INICIALIZACE MQTT KLIENTA ---
-# Vytvoření instance MQTT klienta (s nejnovější specifikací API)
+# ==========================================
+# 3. INICIALIZACE DATOVÝCH STRUKTUR
+# ==========================================
+# Jelikož MQTT klient běží ve vlastním synchronním vlákně a Bleak běží v asynchronní smyčce,
+# k bezpečnému předávání příkazů (např. povel k OTA aktualizaci) používáme Queue (frontu).
+command_queue = queue.Queue()
+
+# ==========================================
+# 4. OBSLUHA MQTT KLIENTA
+# ==========================================
+def on_mqtt_message(client, userdata, msg):
+    """
+    Callback funkce volaná při přijetí zprávy z MQTT.
+    Pokud přijde z webu povel pro OTA, vložíme ho do fronty,
+    odkud si ho později vyzvedne asynchronní BLE smyčka.
+    """
+    if msg.topic == "joystick/ota":
+        command_queue.put(msg.payload.decode('utf-8'))
+
+# Vytvoření instance MQTT klienta (s využitím specifikace API v2)
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+client.on_message = on_mqtt_message
 
 try:
-    # Připojení na port 1883 s keep-alive intervalem 60 vteřin
+    # Připojení k brokeru a spuštění sítě na pozadí
     client.connect(MQTT_BROKER, 1883, 60)
-    # Spuštění MQTT smyčky na pozadí. Tím pádem odesílání zpráv nebrzdí Bluetooth logiku.
-    client.loop_start()
+    client.subscribe("joystick/ota") # Přihlášení k odběru příkazů z webu
+    client.loop_start()              # Spuštění neblokujícího vlákna MQTT klienta
     print("MQTT připojeno.")
 except Exception as e:
     print(f"Chyba MQTT: {e}")
-    sys.exit(1) # Pokud se nelze připojit k MQTT, celý program se bezpečně ukončí
+    sys.exit(1)
 
-# Globální proměnná pro uchování aktuálního stavu (aby se na web neposílalo pořád to samé)
 current_status = ""
 
-# --- POMOCNÉ FUNKCE ---
 def publish_status(status):
     """
-    Odešle aktuální stav připojení do MQTT, ale pouze pokud se stav změnil.
-    Parametr retain=True znamená, že si broker tuto zprávu pamatuje, 
-    takže když se webová stránka načte (nebo obnoví), okamžitě ví, jaký je stav.
+    Odesílá stav připojení (SLEEP, CONNECTING, READY) do MQTT tématu.
+    Využívá flag 'retain=True', takže i když webový klient naskočí později,
+    okamžitě po připojení dostane poslední známý stav systému.
     """
     global current_status
     if current_status != status:
@@ -52,110 +82,112 @@ def publish_status(status):
         
 def notification_handler(sender, data):
     """
-    Tato funkce se spustí automaticky POKAŽDÉ, když ESP32 přes Bluetooth odešle povel.
+    Callback funkce pro příjem GATT notifikací z ESP32.
+    Tato funkce je zavolána, jakmile pacient pohne joystickem.
+    Přijatá data dekóduje a okamžitě je přepošle do MQTT sběrnice.
     """
-    # Z přijatých bytů udělá čitelný text a ořízne prázdné znaky
     command = data.decode('utf-8').strip()
-    # Okamžitě tento text (např. "UP") přepošle do MQTT sítě, aby na to reagoval web
     client.publish(MQTT_TOPIC, command)
 
 def disconnected_callback(client_ble):
     """
-    Funkce volaná knihovnou Bleak při nečekaném odpojení.
-    Necháváme prázdnou (pass), protože stav 'SLEEP' a opětovné připojení 
-    si inteligentně řešíme sami v naší hlavní smyčce.
+    Callback funkce volaná při nečekaném rozpadu Bluetooth spojení.
+    (Zde ponechána prázdná, zotavení řeší hlavní smyčka chycením výjimky).
     """
-    pass # Ignorujeme spam z Linuxu, stav vyřeší smyčka níže
+    pass 
 
-# --- HLAVNÍ BLUETOOTH SMYČKA ---
+# ==========================================
+# 5. HLAVNÍ ASYNCHRONNÍ SMYČKA BLUETOOTH
+# ==========================================
 async def connect_and_listen():
-    # --- HARDWARE WARM-UP ---
+    """
+    Hlavní výkonný blok programu. Zajišťuje skenování okolí, párování 
+    se zadanou MAC adresou ovladače a obousměrný tok dat.
+    """
     print("Čekám 3 vteřiny na inicializaci Bluetooth adaptéru po startu systému...")
     await asyncio.sleep(3) 
-    # --------------------------------
     
     print(f"--- SPUŠTĚN ANTI-PHANTOM FILTER NA {TARGET_MAC} ---")
     publish_status("SLEEP")
 
-    # Nekonečná smyčka - zaručuje, že RPi bude na ESP32 čekat navždy
+    # Nekonečná smyčka udržující odolnost systému proti výpadkům
     while True:
-        # ... (zbytek tvého kódu zůstává beze změny)
         try:
-            # Asynchronní "vlajka", na kterou program čeká, než bude pokračovat
             device_event = asyncio.Event()
             target_device = None
-            
-            # Zapamatujeme si čas spuštění skeneru
             scanner_start_time = time.time()
 
-            # Funkce, která hodnotí každé zařízení, které anténa RPi "uslyší"
             def detection_callback(device, advertisement_data):
+                """
+                Funkce volaná Bluetooth adaptérem při detekci jakéhokoliv okolního zařízení.
+                Obsahuje speciální Anti-Phantom filtr.
+                """
                 nonlocal target_device
-                # Je to naše ESP32?
                 if device.address.lower() == TARGET_MAC.lower():
                     # --- ANTI-PHANTOM FILTER ---
-                    # Linuxový Bluetooth (BlueZ) má zlozvyk pamatovat si stará vysílání (cache).
-                    # Když se ESP32 uspí, RPi občas z mezipaměti vyhrabe starý paket a tváří se, 
-                    # že ESP32 vysílá. Ignorujeme proto vše, co přijde v první vteřině skenování.
+                    # Linuxový subsystém BlueZ občas do programu vrací "duchové" inzertní 
+                    # pakety z mezipaměti (i když je zařízení fyzicky vypnuté).
+                    # Ignorujeme všechna data v 1. vteřině po startu skeneru, 
+                    # čímž se efektivně zbavíme falešných (starých) detekcí.
                     if time.time() - scanner_start_time > 1.0:
-                        target_device = device    # Našli jsme čerstvé ESP32
-                        device_event.set()        # Zvedneme vlajku a jdeme se připojit
+                        target_device = device    
+                        device_event.set() # Odblokuje čekání hlavní smyčky       
 
-            # 1. KROK: Nasloucháme okolí a ignorujeme šum z mezipamětí
+            # Spuštění skenování s naším filtrem
             async with BleakScanner(detection_callback):
-                await device_event.wait() # Zde program tiše čeká, dokud ESP32 nezačne vysílat
+                await device_event.wait() # Čekáme, dokud se ESP32 neprobudí
                 
-            # Pokud kód došel sem, znamená to, že se pacient pohnul joystickem, probudil ESP32 a právě ESP32 vysílá.
             publish_status("CONNECTING")
-            
-            # Mikro-pauza pro bezpečné uvolnění Bluetooth adaptéru po vypnutí skeneru
             await asyncio.sleep(0.1)
             
-            # 2. KROK: Bleskové připojení (3 pokusy)
+            # Jakmile je zařízení nalezeno, pokusíme se o rychlé připojení (max 3 pokusy)
             for attempt in range(3):
                 try:
-                    # Timeout 3.0 je velmi agresivní – pokud se to nepovede do 3 vteřin, 
-                    # spojení spadne a okamžitě zkusíme další pokus.
+                    # Rychlé přímé připojení na nalezený objekt s timeoutem 3s
                     async with BleakClient(target_device, disconnected_callback=disconnected_callback, timeout=3.0) as client_ble:
                         publish_status("READY") 
                         print("\n+++ PŘIPOJENO! Ovladač je aktivní. +++")
 
-                        # Zaregistrujeme "odposlech" charakteristiky z ESP32.
-                        # Od teď každá změna páčky spustí funkci notification_handler.
+                        # Aktivace naslouchání notifikací z ESP32 (směr pacienta)
                         await client_ble.start_notify(UART_TX_CHAR_UUID, notification_handler)
 
-                        # Tato minismyčka drží připojení aktivní a neustále ho kontroluje.
-                        # Jakmile ESP32 (po 30s nečinnosti pacienta) samo usne a odstřihne Bluetooth,
-                        # client_ble.is_connected bude False a tato smyčka skončí.
+                        # Udržovací smyčka aktivního spojení
                         while client_ble.is_connected:
-                            await asyncio.sleep(0.5)
+                            # Průběžná kontrola, zda MQTT neposlalo povel pro ESP32
+                            if not command_queue.empty():
+                                cmd = command_queue.get()
+                                if cmd == "START":
+                                    # Zápis povelu "OTA_START" do RX charakteristiky v ESP32
+                                    await client_ble.write_gatt_char(UART_RX_CHAR_UUID, b"OTA_START")
+                                    print("Odeslán příkaz pro OTA na ESP32!")
                             
-                    # Pokud jsme tady, ESP32 se korektně uspalo a ukončilo Bluetooth spojení.
-                    break # Vyskočíme z opakovací smyčky
-                    
+                            # Uvolnění vlákna pro asynchronní události
+                            await asyncio.sleep(0.1)
+                            
+                    break # Pokud spojení proběhlo a následně se korektně ukončilo, opustíme for-cyklus
                 except Exception as e:
-                    # Pokud spojení selhalo z technických důvodů...
+                    # Pokud zařízení zmizelo z dosahu před připojením
                     if "was not found" in str(e):
-                        break # Zařízení už opravdu není v dosahu, jdeme zpět skenovat
-                    await asyncio.sleep(0.2) # Krátká pauza před dalším pokusem
+                        break 
+                    await asyncio.sleep(0.2) 
             
-            # Konec cyklu - ovladač spí (nebo selhaly všechny 3 pokusy)
+            # Po rozpadu spojení (např. ESP32 usnulo) přejdeme zpět do módu spánku
             publish_status("SLEEP")
             await asyncio.sleep(0.2)
             
         except Exception as e:
-            # Globální ochrana proti zamrznutí skriptu. Pokud dojde k nečekané chybě
-            # (např. se restartuje Bluetooth adaptér na RPi), skript počká 0.2s a jede dál.
+            # Zachycení neočekávaných hardwarových chyb adaptéru
             await asyncio.sleep(0.2)
 
-# --- SPUŠTĚNÍ PROGRAMU ---
-# Tento blok zajistí, že se asynchronní smyčka správně nastartuje při spuštění souboru.
+# ==========================================
+# 6. ENTRY POINT PROGRAMU
+# ==========================================
 if __name__ == "__main__":
     try:
+        # Spuštění hlavní asynchronní událostní smyčky Pythonu
         asyncio.run(connect_and_listen())
     except KeyboardInterrupt:
-        # Pěkné a čisté ukončení při stisknutí Ctrl+C v terminálu
+        # Plynulé ukončení programu při stisku Ctrl+C
         print("\nUkončuji program...")
         publish_status("SLEEP")
         sys.exit(0)
-
