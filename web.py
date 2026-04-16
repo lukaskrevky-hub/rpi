@@ -26,8 +26,8 @@ app = Flask(__name__)
 # ==========================================
 # Tyto adresy slouží pro komunikaci se vzdáleným dohledovým serverem.
 # Systém na ně odesílá asynchronní HTTP požadavky v případě nouze (SOS).
-URL_SOS_ON = "http://DOPLNIT_URL/sos_zvoni.txt?stav=1"
-URL_SOS_OFF = "http://DOPLNIT_URL/sos_zvoni.txt?stav=0"
+URL_SOS_ON = "http://DOPLNIT_URL_OD_VEDOUCIHO/sos_zvoni.txt?stav=1"
+URL_SOS_OFF = "http://DOPLNIT_URL_OD_VEDOUCIHO/sos_zvoni.txt?stav=0"
 
 # ==========================================
 # 3. DEFINICE STROMOVÉHO MENU
@@ -265,7 +265,7 @@ def trigger_action():
 # 7. INICIALIZACE MQTT KLIENTA
 # ==========================================
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-mqtt_client.on_message = on_message
+mqtt_client.on_message = on_mqtt_message
 
 def on_connect(client, userdata, flags, reason_code, properties):
     # Přihlášení k odběru všech dat směřujících z/do ovladače pod příslušným tématem
