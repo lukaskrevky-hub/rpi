@@ -26,8 +26,8 @@ app = Flask(__name__)
 # ==========================================
 # Tyto adresy slouží pro komunikaci se vzdáleným dohledovým serverem.
 # Systém na ně odesílá asynchronní HTTP požadavky v případě nouze (SOS).
-URL_SOS_ON = "http://DOPLNIT_URL_OD_VEDOUCIHO/sos_zvoni.txt?stav=1"
-URL_SOS_OFF = "http://DOPLNIT_URL_OD_VEDOUCIHO/sos_zvoni.txt?stav=0"
+URL_SOS_ON = "http://DOPLNIT_URL/sos_zvoni.txt?stav=1"
+URL_SOS_OFF = "http://DOPLNIT_URL/sos_zvoni.txt?stav=0"
 
 # ==========================================
 # 3. DEFINICE STROMOVÉHO MENU
