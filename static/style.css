@@ -1,0 +1,123 @@
+/* ========================================== */
+/* 1. ZÁKLADNÍ VZHLED (Dark Mode Téma)        */
+/* ========================================== */
+body { 
+    background-color: #121212; 
+    color: white; 
+    font-family: 'Segoe UI', sans-serif; 
+    overflow-x: hidden; 
+    transition: background-color 0.5s ease;
+}
+
+/* --- KRIZOVÁ SOS ANIMACE --- */
+@keyframes sosBlink {
+    0% { background-color: #121212; }
+    50% { background-color: #5a0000; }
+    100% { background-color: #121212; }
+}
+.sos-blinking {
+    animation: sosBlink 1.5s infinite !important;
+}
+
+/* ========================================== */
+/* 2. STYLOVÁNÍ NAVIGAČNÍCH KARET             */
+/* ========================================== */
+.card { 
+    transition: all 0.2s ease-in-out; 
+    cursor: pointer; 
+    border: 2px solid #333; 
+    background-color: #1e1e1e; 
+    border-radius: 15px; 
+    min-height: 180px; 
+    display: flex; 
+    flex-direction: column; 
+    justify-content: center;
+}
+
+.compact-card {
+    min-height: 180px !important; 
+    padding: 15px !important;
+}
+.compact-card .icon-large {
+    font-size: 2.5rem !important; 
+    margin-bottom: 8px !important;
+}
+.compact-card .card-title {
+    font-size: 1.1rem !important; 
+    margin-top: 8px !important;
+    margin-bottom: 0 !important;
+}
+
+.icon-large { font-size: 3.5rem; margin-bottom: 15px; display: block; }
+
+/* --- VIZUALIZACE AKTIVNÍHO VÝBĚRU (Kurzor) --- */
+.joystick-active { 
+    border-color: #00ff00 !important; 
+    transform: scale(1.05); 
+    box-shadow: 0 0 25px rgba(0, 255, 0, 0.4); 
+    background-color: #2a2a2a; 
+    z-index: 10;
+}
+
+/* --- ANIMACE POTVRZENÍ AKCE --- */
+@keyframes flashConfirm {
+    0% { background-color: #2a2a2a; transform: scale(1.05); }
+    50% { background-color: #198754; transform: scale(1.15); box-shadow: 0 0 40px #198754; }
+    100% { background-color: #2a2a2a; transform: scale(1.05); }
+}
+.flash-animation {
+    animation: flashConfirm 0.4s ease-out;
+}
+
+/* ========================================== */
+/* 3. HORNÍ INFORMAČNÍ PANEL (Status Bar)     */
+/* ========================================== */
+.top-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 15px 20px; background: #000; border-bottom: 1px solid #333;
+    margin-bottom: 20px; 
+    position: sticky; top: 0; z-index: 1000; 
+}
+
+.msg-container { display: flex; align-items: center; gap: 15px; }
+
+/* --- INDIKÁTOR PŘIPOJENÍ --- */
+.status-badge {
+    font-size: 1rem; padding: 6px 15px; border-radius: 50px; font-weight: bold;
+    display: flex; align-items: center; gap: 8px; text-transform: uppercase;
+    box-shadow: 0 0 10px rgba(0,0,0,0.3);
+}
+.status-ready { background-color: #198754; color: white; border: 1px solid #198754; }
+.status-sleep { background-color: #212529; color: #6c757d; border: 1px solid #495057; }
+.status-conn { background-color: #ffc107; color: black; border: 1px solid #ffc107; }
+
+/* --- TLAČÍTKO VYŘÍZENO --- */
+.reset-btn {
+    background-color: #dc3545; color: white; border: none;
+    padding: 5px 15px; border-radius: 5px; font-weight: bold;
+    display: none; cursor: pointer; 
+    animation: pulse 2s infinite; 
+}
+.reset-btn:hover { background-color: #bb2d3b; }
+
+@keyframes pulse {
+    0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); }
+}
+.mode-label { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 2px; color: #888; margin-bottom: 2px; }
+
+/* ========================================== */
+/* 4. VLASTNÍ BARVY IKON (LED PÁSEK)          */
+/* ========================================== */
+/* Barvy jsou optimalizovány pro tmavý režim tak, aby byly jasně rozeznatelné */
+.text-led-red { color: #ff3333 !important; }
+.text-led-green { color: #00ff00 !important; }
+.text-led-blue { color: #3366ff !important; }
+.text-led-white { color: #ffffff !important; text-shadow: 0 0 10px rgba(255,255,255,0.4); }
+.text-led-yellow { color: #ffeb3b !important; } /* Výrazná žlutá */
+.text-led-orange { color: #ff9800 !important; } /* Jasně oddělená oranžová */
+.text-led-pink { color: #ff66b2 !important; }
+.text-led-purple { color: #b366ff !important; } /* Světlejší fialová kvůli kontrastu */
+.text-led-lightblue { color: #00e5ff !important; }
+
+/* Efekty - zářivá barva pro odlišení od běžných barev */
+.text-led-effect { color: #00ffff !important; text-shadow: 0 0 15px rgba(0, 255, 255, 0.5); }
