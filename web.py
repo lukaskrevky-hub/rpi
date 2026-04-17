@@ -97,7 +97,17 @@ MENU_LED_CONTROLS = [
     {"id": 4, "label": "ČERVENÁ", "icon": "fa-palette", "color": "danger", "type": "ir", "device": "led", "code": "color_red"},
     {"id": 5, "label": "ZELENÁ", "icon": "fa-palette", "color": "success", "type": "ir", "device": "led", "code": "color_green"},
     {"id": 6, "label": "MODRÁ", "icon": "fa-palette", "color": "info", "type": "ir", "device": "led", "code": "color_blue"},
-    {"id": 7, "label": "ZPĚT", "icon": "fa-arrow-left", "color": "secondary", "type": "back"}
+    {"id": 7, "label": "BÍLÁ", "icon": "fa-palette", "color": "light", "type": "ir", "device": "led", "code": "color_white"},
+    {"id": 8, "label": "ŽLUTÁ", "icon": "fa-palette", "color": "warning", "type": "ir", "device": "led", "code": "color_yellow"},
+    {"id": 9, "label": "ORANŽOVÁ", "icon": "fa-palette", "color": "warning", "type": "ir", "device": "led", "code": "color_orange"},
+    {"id": 10, "label": "RŮŽOVÁ", "icon": "fa-palette", "color": "danger", "type": "ir", "device": "led", "code": "color_pink"},
+    {"id": 11, "label": "FIALOVÁ", "icon": "fa-palette", "color": "primary", "type": "ir", "device": "led", "code": "color_purple"},
+    {"id": 12, "label": "SVĚTLE MODRÁ", "icon": "fa-palette", "color": "info", "type": "ir", "device": "led", "code": "color_lightblue"},
+    {"id": 13, "label": "EFEKT: BLIKÁNÍ", "icon": "fa-bolt", "color": "dark", "type": "ir", "device": "led", "code": "effect_flash"},
+    {"id": 14, "label": "EFEKT: STROBOSKOP", "icon": "fa-wave-square", "color": "dark", "type": "ir", "device": "led", "code": "effect_strobe"},
+    {"id": 15, "label": "EFEKT: PROLÍNÁNÍ", "icon": "fa-circle-half-stroke", "color": "dark", "type": "ir", "device": "led", "code": "effect_fade"},
+    {"id": 16, "label": "EFEKT: PLYNULE", "icon": "fa-wand-magic-sparkles", "color": "dark", "type": "ir", "device": "led", "code": "effect_smooth"},
+    {"id": 17, "label": "ZPĚT", "icon": "fa-arrow-left", "color": "secondary", "type": "back"}
 ]
 
 # Propojovací slovník pro snadnou navigaci mezi podmenu
