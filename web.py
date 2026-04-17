@@ -105,7 +105,7 @@ MENUS = {
 }
 
 # Databáze podporovaných značek pro infračervených povelů
-AVAILABLE_TV_BRANDS = ["tcl", "sony", "lg", "panasonic", "gogen"]
+AVAILABLE_TV_BRANDS = ["tcl", "sony", "lg", "panasonic", "gogen", "samsung"]
 AVAILABLE_AC_BRANDS = ["toshiba", "mitsubishi"]
 AVAILABLE_RADIO_BRANDS = ["auna", "onkyo"]
 AVAILABLE_LED_BRANDS = ["generic_rgb"]
