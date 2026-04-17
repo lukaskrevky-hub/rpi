@@ -91,10 +91,12 @@ MENU_RADIO_CONTROLS = [
 
 MENU_LED_CONTROLS = [
     {"id": 0, "label": "ZAP/VYP", "icon": "fa-power-off", "color": "danger", "type": "ir", "device": "led", "code": "power"},
-    {"id": 1, "label": "ČERVENÁ", "icon": "fa-palette", "color": "danger", "type": "ir", "device": "led", "code": "color_red"},
-    {"id": 2, "label": "ZELENÁ", "icon": "fa-palette", "color": "success", "type": "ir", "device": "led", "code": "color_green"},
-    {"id": 3, "label": "MODRÁ", "icon": "fa-palette", "color": "info", "type": "ir", "device": "led", "code": "color_blue"},
-    {"id": 4, "label": "ZPĚT", "icon": "fa-arrow-left", "color": "secondary", "type": "back"}
+    {"id": 1, "label": "JAS +", "icon": "fa-sun", "color": "warning", "type": "ir", "device": "led", "code": "bright_up"},
+    {"id": 2, "label": "JAS -", "icon": "fa-moon", "color": "secondary", "type": "ir", "device": "led", "code": "bright_down"},
+    {"id": 3, "label": "ČERVENÁ", "icon": "fa-palette", "color": "danger", "type": "ir", "device": "led", "code": "color_red"},
+    {"id": 4, "label": "ZELENÁ", "icon": "fa-palette", "color": "success", "type": "ir", "device": "led", "code": "color_green"},
+    {"id": 5, "label": "MODRÁ", "icon": "fa-palette", "color": "info", "type": "ir", "device": "led", "code": "color_blue"},
+    {"id": 6, "label": "ZPĚT", "icon": "fa-arrow-left", "color": "secondary", "type": "back"}
 ]
 
 # Propojovací slovník pro snadnou navigaci mezi podmenu
