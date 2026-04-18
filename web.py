@@ -281,6 +281,13 @@ def trigger_action():
         except: pass
         system_state["message"] = "Připraveno"
 
+    # 5. Odesílání externích HTTP požadavků (Interoperabilita - Benetronic)
+    elif item.get("type") == "http_get":
+        url = item.get("url")
+        system_state["message"] = f"Odesláno: {item['label']}"
+        # Odešle dotaz ve vedlejším vlákně, aby nezamrzl web
+        threading.Thread(target=send_http_request, args=(url,)).start()
+
     # ==========================================
     # 5. HYBRIDNÍ IR OVLÁDÁNÍ (Kaskádové načítání: Protokoly -> RAW data)
     # ==========================================
