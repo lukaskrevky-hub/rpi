@@ -51,7 +51,8 @@ MENU_DEVICES = [
     {"id": 1, "label": "KLIMATIZACE", "icon": "fa-snowflake", "color": "info", "type": "submenu", "target": "ac_controls"},
     {"id": 2, "label": "RÁDIO", "icon": "fa-radio", "color": "primary", "type": "submenu", "target": "radio_controls"},
     {"id": 3, "label": "LED PÁSKY", "icon": "fa-lightbulb", "color": "warning", "type": "submenu", "target": "led_controls"},
-    {"id": 4, "label": "DOMŮ", "icon": "fa-house", "color": "secondary", "type": "back"}
+    {"id": 4, "label": "DOMÁCNOST KLIENTA", "icon": "fa-house-user", "color": "success", "type": "submenu", "target": "client_controls"},
+    {"id": 5, "label": "DOMŮ", "icon": "fa-house", "color": "secondary", "type": "back"}
 ]
 
 # Podmenu pro ovládání konkrétní spotřební elektroniky přes infračervený signál (IR)
