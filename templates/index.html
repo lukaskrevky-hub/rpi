@@ -31,6 +31,10 @@
         
         <div style="display: flex; gap: 15px; align-items: center;">
             
+            <button id="tts-button" class="btn btn-outline-info btn-sm" onclick="toggleTts()" style="border-radius: 50px; padding: 6px 15px; font-weight: bold; box-shadow: 0 0 10px rgba(0,0,0,0.3);">
+                <i class="fa-solid fa-volume-xmark"></i> HLAS: VYP
+            </button>
+            
             <button class="btn btn-outline-danger btn-sm" onclick="triggerOta()" style="border-radius: 50px; padding: 6px 15px; font-weight: bold; box-shadow: 0 0 10px rgba(0,0,0,0.3);">
                 <i class="fa-solid fa-download"></i> AKTUALIZOVAT OVLADAČ
             </button>
@@ -205,6 +209,20 @@
                 resetBtn.style.display = "none";
             }
 
+            // NOVÉ: AKTUALIZACE TLAČÍTKA HLASOVÉHO ASISTENTA (TTS)
+            const ttsBtn = document.getElementById('tts-button');
+            if (ttsBtn) {
+                // Pokud nám Python pošle, že je čtení aktivní...
+                if (data.tts_enabled) {
+                    ttsBtn.classList.replace('btn-outline-info', 'btn-info'); // Plná modrá barva pro aktivní stav
+                    ttsBtn.innerHTML = '<i class="fa-solid fa-volume-high"></i> HLAS: ZAP';
+                } else {
+                    // Pokud je čtení vypnuté...
+                    ttsBtn.classList.replace('btn-info', 'btn-outline-info'); // Pouze obrys pro neaktivní stav
+                    ttsBtn.innerHTML = '<i class="fa-solid fa-volume-xmark"></i> HLAS: VYP';
+                }
+            }
+
             // AKTUALIZACE STAVU ESP32 (Odznak nahoře vpravo)
             const badge = document.getElementById('connection-indicator');
             const icon = badge.querySelector('i');
@@ -244,6 +262,9 @@
         
         // Odešle na server povel, aby připravil aktualizační balíček (firmware) pro ESP32 ovladač
         function triggerOta() { fetch('/api/ota', { method: 'POST' }); }
+        
+        // NOVÉ: Odešle na server povel pro zapnutí/vypnutí čtení obrazovky (TTS)
+        function toggleTts() { fetch('/api/tts_toggle', { method: 'POST' }); }
         
         // --- NEJDŮLEŽITĚJŠÍ ŘÁDEK SYSTÉMU ---
         // Funkce setInterval zajistí, že se naše hlavní smyčka updateStatus() bude spouštět neustále dokola, přesně každých 300 milisekund (cca 3x za vteřinu).
