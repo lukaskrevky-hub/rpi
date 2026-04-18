@@ -110,6 +110,13 @@ MENU_LED_CONTROLS = [
     {"id": 17, "label": "ZPĚT", "icon": "fa-arrow-left", "color": "secondary", "type": "back"}
 ]
 
+MENU_CLIENT_CONTROLS = [
+    {"id": 0, "label": "LAMPA", "icon": "fa-lightbulb", "color": "warning", "type": "http_get", "url": "https://iot.benetronic.com/mymodule/z6r64fcYSf/EfR4/jirka@benetronic.com/HODNOTA/100/0"},
+    {"id": 1, "label": "PROGRAM +", "icon": "fa-arrow-up", "color": "info", "type": "http_get", "url": "https://iot.benetronic.com/mymodule/E9zNtHbVM3/BX9c/jirka@benetronic.com/HODNOTA/100/0"},
+    {"id": 2, "label": "PROGRAM -", "icon": "fa-arrow-down", "color": "info", "type": "http_get", "url": "https://iot.benetronic.com/mymodule/mRHBXuNKd6/Bwuz/jirka@benetronic.com/HODNOTA/100/0"},
+    {"id": 3, "label": "ZPĚT", "icon": "fa-arrow-left", "color": "secondary", "type": "back"}
+]
+
 # Propojovací slovník pro snadnou navigaci mezi podmenu
 MENUS = {
     "home": MENU_HOME, "devices": MENU_DEVICES,
