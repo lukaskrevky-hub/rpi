@@ -32,6 +32,8 @@ body {
     display: flex; 
     flex-direction: column; 
     justify-content: center;
+    /* NOVÉ: Ochranná mezera (margin). Zajistí, že při scrollování nahoru karta nezajede pod fixní lištu. */
+    scroll-margin-top: 130px; 
 }
 
 .compact-card {
@@ -73,7 +75,8 @@ body {
 /* 3. HORNÍ INFORMAČNÍ PANEL (Status Bar)     */
 /* ========================================== */
 .top-bar {
-    display: flex; justify-content: space-between; align-items: center;
+    /* NOVÉ: flex-wrap a gap umožní na extrémně úzkém mobilu prvky zalamovat pod sebe, aby neutekly z obrazovky */
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;
     padding: 15px 20px; background: #000; border-bottom: 1px solid #333;
     margin-bottom: 20px; 
     position: sticky; top: 0; z-index: 1000; 
