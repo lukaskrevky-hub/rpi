@@ -18,9 +18,9 @@ from flask import Flask, render_template, jsonify, request
 import paho.mqtt.client as mqtt  
 # Requests: Modul pro odesílání HTTP požadavků (ovládání domácnosti Benetronic)
 import requests                  
-# Threading: Umožňuje běh více věcí najednou (např. web běží, zatímco se odesílá HTTP dotaz)
+# Threading: Umožňuje běh více věcí najednou (např. web běží, zatímco se odesílá HTTP dotaz nebo se čeká na animaci)
 import threading                 
-# Time: Práce s časem (časovače pro 2minutový SOS poplach, pauzy u IR vysílání)
+# Time: Práce s časem (časovače pro 2minutový SOS poplach, pauzy u IR vysílání a UI animace)
 import time                      
 # Subprocess: Slouží ke spouštění linuxových příkazů přímo z Pythonu (čtení textu espeak, infračervené ir-ctl)
 import subprocess                
@@ -47,10 +47,9 @@ MENU_HOME = [
     {"id": 0, "label": "MÁM ŽÍZEŇ", "icon": "fa-glass-water", "color": "primary", "type": "req"},
     {"id": 1, "label": "MÁM HLAD", "icon": "fa-utensils", "color": "warning", "type": "req"},
     {"id": 2, "label": "SVĚTLO", "icon": "fa-lightbulb", "color": "success", "type": "zigbee"},
-    {"id": 3, "label": "ZVONEK", "icon": "fa-bell", "color": "info", "type": "zigbee_bell"},
     # Typ 'sos' vyvolá vizuální poplach (blikání obrazovky na sesterně)
-    {"id": 4, "label": "POMOC", "icon": "fa-hand-holding-medical", "color": "danger", "type": "sos"},
-    {"id": 5, "label": "ZRUŠIT", "icon": "fa-rotate-left", "color": "secondary", "type": "cancel"}
+    {"id": 3, "label": "POMOC", "icon": "fa-hand-holding-medical", "color": "danger", "type": "sos"},
+    {"id": 4, "label": "ZRUŠIT", "icon": "fa-rotate-left", "color": "secondary", "type": "cancel"}
 ]
 
 # Rozcestník pro výběr konkrétního hardwaru (typuje do podmenu)
@@ -228,7 +227,7 @@ def process_command(cmd):
     """Přeloží hardwarové směry (UP/DOWN/LEFT/RIGHT) na navigaci po obrazovce."""
     log_activity(f"Přijat příkaz od pacienta: {cmd}")
     
-    if cmd == "UP": go_back()                   # Nahoru = Krok zpět
+    if cmd == "UP": go_back()                   # Nahoru = Krok zpět bez probliknutí karty
     elif cmd == "RIGHT": move_selection(1)      # Doprava = Posun o 1 kartu dál
     elif cmd == "LEFT": move_selection(-1)      # Doleva = Posun o 1 kartu zpět
     elif cmd in ["DOWN", "SELECT"]: trigger_action() # Dolů (nebo fyzické stisknutí tlačítka) = Potvrdit volbu
@@ -245,35 +244,47 @@ def move_selection(direction):
     item = system_state["current_menu"][system_state["selected_index"]]
     speak_text(item["label"])
 
-def go_back():
+def go_back(delayed=False):
     """
     Složitější logika pro navigaci ZPĚT.
     Zjišťuje, jestli jsme zanořeni v podmenu (pamatuje si to v historii), nebo jsme na hlavní obrazovce.
+    Parametr delayed=True znamená, že jsme na kartu kliknuli a musíme počkat na doznívání flash animace.
     """
-    # Máme něco v historii? (Jsme v podmenu např. TV)
-    if len(system_state["menu_history"]) > 0:
-        # Vrátíme se do stavu před zanořením
-        prev_state = system_state["menu_history"].pop()
-        system_state["current_menu"] = prev_state["menu"]
-        system_state["selected_index"] = prev_state["index"]
-        system_state["message"] = prev_state["message"]
-    else:
-        # Nejsme v historii. Jsme na kořenové obrazovce.
-        # Směr nahoru přepíná mezi Požadavky (HOME) a Elektronikou (DEVICES)
-        if system_state["mode"] == "home":
-            system_state["mode"] = "devices"
-            system_state["current_menu"] = MENU_DEVICES
-            system_state["selected_index"] = 0
-            system_state["message"] = "Režim: ZAŘÍZENÍ"
+    def switch_logic():
+        # Pokud je požadavek zpožděný, chvíli vlákno uspíme
+        if delayed:
+            time.sleep(0.4) 
+
+        # Máme něco v historii? (Jsme v podmenu např. TV)
+        if len(system_state["menu_history"]) > 0:
+            # Vrátíme se do stavu před zanořením
+            prev_state = system_state["menu_history"].pop()
+            system_state["current_menu"] = prev_state["menu"]
+            system_state["selected_index"] = prev_state["index"]
+            system_state["message"] = prev_state["message"]
         else:
-            system_state["mode"] = "home"
-            system_state["current_menu"] = MENU_HOME
-            system_state["selected_index"] = 0
-            system_state["message"] = "Připraveno"
-            
-    # Po změně nabídky přečteme vybranou položku
-    item = system_state["current_menu"][system_state["selected_index"]]
-    speak_text(item["label"])
+            # Nejsme v historii. Jsme na kořenové obrazovce.
+            # Směr nahoru přepíná mezi Požadavky (HOME) a Elektronikou (DEVICES)
+            if system_state["mode"] == "home":
+                system_state["mode"] = "devices"
+                system_state["current_menu"] = MENU_DEVICES
+                system_state["selected_index"] = 0
+                system_state["message"] = "Režim: ZAŘÍZENÍ"
+            else:
+                system_state["mode"] = "home"
+                system_state["current_menu"] = MENU_HOME
+                system_state["selected_index"] = 0
+                system_state["message"] = "Připraveno"
+                
+        # Po změně nabídky přečteme vybranou položku
+        item = system_state["current_menu"][system_state["selected_index"]]
+        speak_text(item["label"])
+
+    # Spustíme logiku přepnutí buď hned, nebo skrytě na pozadí, aby web nezamrzl
+    if delayed:
+        threading.Thread(target=switch_logic).start()
+    else:
+        switch_logic()
 
 def trigger_action():
     """
@@ -293,14 +304,22 @@ def trigger_action():
         system_state["menu_history"].append({
             "menu": system_state["current_menu"], "index": system_state["selected_index"], "message": system_state["message"]
         })
-        system_state["message"] = f"Menu: {item['label']}"
-        # Nahrajeme nové podmenu ze slovníku MENUS (např. 'tv_controls')
-        system_state["current_menu"] = MENUS[item["target"]]
-        system_state["selected_index"] = 0 
-        speak_text(system_state["current_menu"][0]["label"])
+        
+        # FUNKCE PRO ZPOŽDĚNÝ PŘECHOD (UX Vylepšení):
+        # Aby frontend stihl přehrát 400ms zelenou animaci na vybrané kartě ještě PŘEDTÍM, 
+        # než se menu kompletně přepne na např. ovladač TV, provedeme samotné přepnutí 
+        # ve vedlejším vlákně s malým zpožděním.
+        def delayed_submenu_switch():
+            time.sleep(0.4) 
+            system_state["message"] = f"Menu: {item['label']}"
+            system_state["current_menu"] = MENUS[item["target"]]
+            system_state["selected_index"] = 0 
+            speak_text(system_state["current_menu"][0]["label"])
+            
+        threading.Thread(target=delayed_submenu_switch).start()
         
     # --- 2. OBYČEJNÉ NÁPISY A ZPĚT ---
-    elif item.get("type") == "back": go_back()
+    elif item.get("type") == "back": go_back(delayed=True) # Zde posíláme True, abychom také počkali na animaci
     elif item.get("type") == "cancel": system_state["message"] = "Připraveno"
     elif item.get("type") == "req": system_state["message"] = f"Vybráno: {item['label']}"
     
@@ -314,10 +333,6 @@ def trigger_action():
     # --- 4. ZIGBEE LOKÁLNÍ CHYTRÁ DOMÁCNOST ---
     elif item.get("type") == "zigbee":
         try: mqtt_client.publish("zigbee2mqtt/zasuvka/set", '{"state": "TOGGLE"}')
-        except: pass
-        system_state["message"] = "Připraveno"
-    elif item.get("type") == "zigbee_bell":
-        try: mqtt_client.publish("zigbee2mqtt/zvonek/set", '{"state": "ON"}')
         except: pass
         system_state["message"] = "Připraveno"
 
@@ -447,7 +462,7 @@ def trigger_ota():
 
 @app.route('/api/tts_toggle', methods=['POST'])
 def toggle_tts():
-    """Zapínání a vypínání otravného 'čtení' z reproduktoru."""
+    """Zapínání a vypínání hlasového čtení z reproduktoru."""
     # Prohodí True za False a naopak (Negace aktuálního stavu)
     system_state["tts_enabled"] = not system_state.get("tts_enabled", False)
     if system_state["tts_enabled"]: 
