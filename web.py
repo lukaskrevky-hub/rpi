@@ -122,7 +122,8 @@ MENU_CLIENT_CONTROLS = [
 MENUS = {
     "home": MENU_HOME, "devices": MENU_DEVICES,
     "tv_controls": MENU_TV_CONTROLS, "ac_controls": MENU_AC_CONTROLS,
-    "radio_controls": MENU_RADIO_CONTROLS, "led_controls": MENU_LED_CONTROLS
+    "radio_controls": MENU_RADIO_CONTROLS, "led_controls": MENU_LED_CONTROLS,
+    "client_controls": MENU_CLIENT_CONTROLS
 }
 
 # Databáze podporovaných značek pro infračervených povelů
