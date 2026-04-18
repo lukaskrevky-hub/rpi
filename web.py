@@ -10,52 +10,62 @@ která inteligentně upřednostňuje čisté protokoly před RAW daty.
 """
 
 # ==========================================
-# 1. IMPORT POTŘEBNÝCH KNIHOVEN
+# 1. IMPORT POTŘEBNÝCH KNIHOVEN A MODULŮ
 # ==========================================
-from flask import Flask, render_template, jsonify, request # Webový framework pro tvorbu API a servírování HTML
-import paho.mqtt.client as mqtt  # Klient pro asynchronní komunikaci se zprávovou sběrnicí MQTT
-import requests                  # Pro odesílání synchronních HTTP GET požadavků (REST API) na externí server
-import threading                 # Podpora pro běh funkcí ve vedlejších vláknech (multithreading)
-import time                      # Časové funkce pro prodlevy a měření časovačů (SOS alarm)
-import subprocess                # Modul pro spouštění nízkoúrovňových linuxových příkazů (espeak, ir-ctl)
-import datetime                  # Pro formátování reálného času do logovacích souborů
-import os                        # Přístup k souborovému systému (ověřování existence IR souborů)
+# Flask: Webový framework pro vytvoření API a zobrazení HTML stránky (index.html)
+from flask import Flask, render_template, jsonify, request 
+# Paho MQTT: Knihovna pro naslouchání zprávám z joysticku (z ESP32)
+import paho.mqtt.client as mqtt  
+# Requests: Modul pro odesílání HTTP požadavků (ovládání domácnosti Benetronic)
+import requests                  
+# Threading: Umožňuje běh více věcí najednou (např. web běží, zatímco se odesílá HTTP dotaz)
+import threading                 
+# Time: Práce s časem (časovače pro 2minutový SOS poplach, pauzy u IR vysílání)
+import time                      
+# Subprocess: Slouží ke spouštění linuxových příkazů přímo z Pythonu (čtení textu espeak, infračervené ir-ctl)
+import subprocess                
+# Datetime: Získání aktuálního data a času pro zapisování do logovacího souboru
+import datetime                  
+# OS: Práce se souborovým systémem Linuxu (hlavně ověřování, zda existuje .txt soubor s IR kódem)
+import os                        
 
+# Inicializace samotné webové aplikace do proměnné 'app'
 app = Flask(__name__)
 
 # ==========================================
-# 2. EXTERNÍ INTEGRACE A KONFIGURACE
+# 2. DEFINICE STROMOVÉHO MENU (Uživatelské rozhraní)
 # ==========================================
-# Tyto adresy slouží pro komunikaci se vzdáleným dohledovým serverem.
-# Systém na ně odesílá asynchronní HTTP požadavky v případě nouze (SOS).
-URL_SOS_ON = "http://DOPLNIT_URL_OD_VEDOUCIHO/sos_zvoni.txt?stav=1"
-URL_SOS_OFF = "http://DOPLNIT_URL_OD_VEDOUCIHO/sos_zvoni.txt?stav=0"
+# Menu je definováno jako seznam slovníků. Každý slovník představuje jedno tlačítko na obrazovce.
+# - 'id': Pořadí tlačítka
+# - 'label': Nápis na tlačítku
+# - 'icon': Třída ikonky z knihovny FontAwesome (např. fa-tv)
+# - 'color': Barva tlačítka (bootstrap třídy nebo naše vlastní led-barvy z CSS)
+# - 'type': Typ akce, která se stane po stisknutí (ir, zigbee, sos, submenu, http_get, atd.)
 
-# ==========================================
-# 3. DEFINICE STROMOVÉHO MENU
-# ==========================================
-# Menu je definováno jako seznam slovníků. Každá položka nese sémantický význam,
-# ikonku pro frontend (FontAwesome), typ akce a případné další parametry.
-
+# Kořenové menu - základní požadavky pacienta
 MENU_HOME = [
     {"id": 0, "label": "MÁM ŽÍZEŇ", "icon": "fa-glass-water", "color": "primary", "type": "req"},
     {"id": 1, "label": "MÁM HLAD", "icon": "fa-utensils", "color": "warning", "type": "req"},
     {"id": 2, "label": "SVĚTLO", "icon": "fa-lightbulb", "color": "success", "type": "zigbee"},
     {"id": 3, "label": "ZVONEK", "icon": "fa-bell", "color": "info", "type": "zigbee_bell"},
+    # Typ 'sos' vyvolá vizuální poplach (blikání obrazovky na sesterně)
     {"id": 4, "label": "POMOC", "icon": "fa-hand-holding-medical", "color": "danger", "type": "sos"},
     {"id": 5, "label": "ZRUŠIT", "icon": "fa-rotate-left", "color": "secondary", "type": "cancel"}
 ]
 
+# Rozcestník pro výběr konkrétního hardwaru (typuje do podmenu)
 MENU_DEVICES = [
     {"id": 0, "label": "TELEVIZE", "icon": "fa-tv", "color": "secondary", "type": "submenu", "target": "tv_controls"},
     {"id": 1, "label": "KLIMATIZACE", "icon": "fa-snowflake", "color": "info", "type": "submenu", "target": "ac_controls"},
     {"id": 2, "label": "RÁDIO", "icon": "fa-radio", "color": "primary", "type": "submenu", "target": "radio_controls"},
     {"id": 3, "label": "LED PÁSKY", "icon": "fa-lightbulb", "color": "warning", "type": "submenu", "target": "led_controls"},
+    # Napojení na domácnost klienta
     {"id": 4, "label": "DOMÁCNOST KLIENTA", "icon": "fa-house-user", "color": "success", "type": "submenu", "target": "client_controls"},
     {"id": 5, "label": "DOMŮ", "icon": "fa-house", "color": "secondary", "type": "back"}
 ]
 
-# Podmenu pro ovládání konkrétní spotřební elektroniky přes infračervený signál (IR)
+# --- PODMENU PRO INFRAČERVENÁ ZAŘÍZENÍ (IR) ---
+# Tlačítka obsahují parametry 'device' (složka přístroje) a 'code' (název txt souboru)
 MENU_TV_CONTROLS = [
     {"id": 0, "label": "ZAP/VYP", "icon": "fa-power-off", "color": "danger", "type": "ir", "device": "tv", "code": "power"},
     {"id": 1, "label": "PROGRAM +", "icon": "fa-arrow-up", "color": "info", "type": "ir", "device": "tv", "code": "ch_up"},
@@ -111,6 +121,8 @@ MENU_LED_CONTROLS = [
     {"id": 17, "label": "ZPĚT", "icon": "fa-arrow-left", "color": "secondary", "type": "back"}
 ]
 
+# --- PODMENU PRO DOMÁCNOST KLIENTA (BENETRONIC) ---
+# Tato sekce obsahuje přímé HTTP odkazy poskytnuté klientem. Akce typu "http_get" zavolá danou URL.
 MENU_CLIENT_CONTROLS = [
     {"id": 0, "label": "LAMPA", "icon": "fa-lightbulb", "color": "warning", "type": "http_get", "url": "https://iot.benetronic.com/mymodule/z6r64fcYSf/EfR4/jirka@benetronic.com/HODNOTA/100/0"},
     {"id": 1, "label": "PROGRAM +", "icon": "fa-arrow-up", "color": "info", "type": "http_get", "url": "https://iot.benetronic.com/mymodule/E9zNtHbVM3/BX9c/jirka@benetronic.com/HODNOTA/100/0"},
@@ -118,7 +130,8 @@ MENU_CLIENT_CONTROLS = [
     {"id": 3, "label": "ZPĚT", "icon": "fa-arrow-left", "color": "secondary", "type": "back"}
 ]
 
-# Propojovací slovník pro snadnou navigaci mezi podmenu
+# Propojovací slovník (Dictionary) pro snadnou navigaci.
+# Slouží k tomu, aby systém věděl, jaké pole tlačítek má načíst, když uživatel klikne na submenu.
 MENUS = {
     "home": MENU_HOME, "devices": MENU_DEVICES,
     "tv_controls": MENU_TV_CONTROLS, "ac_controls": MENU_AC_CONTROLS,
@@ -126,107 +139,127 @@ MENUS = {
     "client_controls": MENU_CLIENT_CONTROLS
 }
 
-# Databáze podporovaných značek pro infračervených povelů
+# --- DATABÁZE PODPOROVANÝCH ZNAČEK PRO IR ALGORITMUS KOBERCOVÉHO NÁLETU ---
+# Systém postupně odešle kód pro všechny značky v těchto seznamech.
 AVAILABLE_TV_BRANDS = ["tcl", "sony", "lg", "panasonic", "gogen", "samsung"]
 AVAILABLE_AC_BRANDS = ["toshiba", "mitsubishi"]
 AVAILABLE_RADIO_BRANDS = ["auna", "onkyo"]
 AVAILABLE_LED_BRANDS = ["generic_rgb"]
 
 # ==========================================
-# 4. GLOBÁLNÍ STAVOVÝ MODEL SYSTÉMU (State)
+# 3. GLOBÁLNÍ STAVOVÝ MODEL SYSTÉMU (State)
 # ==========================================
-# Tento slovník drží aktuální stav celé aplikace. Frontend (AJAX) 
-# si tento stav pravidelně stahuje a podle něj překresluje obrazovku.
+# Tento slovník drží aktuální stav celé aplikace. Frontend (přes AJAX v prohlížeči) 
+# si tento stav pravidelně stahuje (3x za vteřinu) a podle něj mění to, co uživatel vidí.
 system_state = {
-    "mode": "home",              # Aktuální hlavní režim (home / devices)
-    "current_menu": MENU_HOME,   # Zrovna vykreslované menu na displeji
-    "menu_history": [],          # LIFO zásobník pro navigaci "Zpět" (Zanořování)
-    "selected_index": 0,         # Index karty, na které je aktuálně kurzor (joystick)
-    "message": "Připraveno",     # Informační zpráva zobrazená v horní liště
-    "connection": "SLEEP",       # Stav spojení s ESP32 ovladačem
-    "last_action": 0,            # Časové razítko poslední provedené akce (pro animace)
-    "sos_active": False,         # Zda je aktivní 2minutový poplach
-    "sos_timer": 0,              # Unix timestamp spuštění poplachu
-    "tts_enabled": False         # Příznak, zda je zapnuto čtení obrazovky (Text-To-Speech)
+    "mode": "home",              # Zda jsme v režimu HOME (Požadavky) nebo DEVICES (Ovládání elektroniky)
+    "current_menu": MENU_HOME,   # Aktuálně vykreslované pole tlačítek na obrazovce
+    "menu_history": [],          # LIFO zásobník (paměť) pro navigaci "Zpět"
+    "selected_index": 0,         # Index (pořadí) karty, na které je aktuálně kurzor (vybrána joystickem)
+    "message": "Připraveno",     # Informační zpráva zobrazená v horní liště (např. "MÁM HLAD")
+    "connection": "SLEEP",       # Stav spojení s ESP32 ovladačem (READY, CONNECTING, SLEEP)
+    "last_action": 0,            # Časové razítko poslední akce (slouží pro spuštění zelené flash animace karty)
+    "sos_active": False,         # Logická hodnota (Zda obrazovka bliká červeně)
+    "sos_timer": 0,              # Přesný čas, kdy byl SOS poplach spuštěn (slouží k samovypnutí po 2 minutách)
+    "tts_enabled": False         # Logická hodnota (Zda Raspberry Pi čte text pomocí espeak)
 }
 
 # ==========================================
-# 5. POMOCNÉ SERVISNÍ FUNKCE
+# 4. POMOCNÉ SERVISNÍ FUNKCE
 # ==========================================
 def log_activity(action):
-    """Zápis systémových událostí do trvalého logovacího souboru pro diagnostiku."""
+    """Zápis systémových událostí do trvalého txt souboru. Dobré pro ladění a historii."""
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
+        # Soubor se otevře v režimu "a" (append - připojit na konec), aby se nepřemazala stará data
         with open("/home/lukas/rpi/aktivita_systemu.log", "a") as f:
             f.write(f"[{timestamp}] - {action}\n")
-    except IOError: pass
+    except IOError: 
+        pass # Pokud nejde zapsat (např. práva), chybu ignoruj
     print(f"Zapsáno do logu: [{timestamp}] - {action}")
 
 def speak_text(text):
     """
-    Vygeneruje syntetický hlasový výstup (přečtení textu) přímo z Raspberry Pi.
-    Využívá utilitu 'espeak'. Nejprve tvrdě ukončí probíhající proces čtení,
-    aby nedocházelo k překrývání slov při rychlém posunu v menu.
+    Vygeneruje syntetický hlasový výstup (přečtení textu) přímo z reproduktorů Raspberry Pi.
     """
+    # Provede se pouze, pokud je čtení v systému zapnuto (přepíná se v horní liště webu)
     if system_state.get("tts_enabled", False):
         try:
+            # Trik: Nejprve tvrdě ukončíme případný probíhající proces espeak (pokud uživatel posunul joystick rychle)
             subprocess.run(["killall", "espeak"], stderr=subprocess.DEVNULL)
+            # Spustíme čtení nového slova na pozadí (-v cs = čeština)
             subprocess.Popen(["espeak", "-v", "cs", text], stderr=subprocess.DEVNULL)
-        except Exception as e: print(e)
+        except Exception as e: 
+            print(e)
 
 def send_http_request(url):
     """
-    Odešle asynchronní HTTP GET dotaz na nadřazený dohledový server.
-    Obsahuje ochranný timeout pro zabránění zamrznutí lokální sítě.
+    Odešle HTTP GET dotaz (slouží pro domácnost Benetronic).
+    Běží vždy v novém vlákně, aby čekání na odpověď serveru nezablokovalo webové rozhraní.
     """
-    if "DOPLNIT" in url: return 
-    try: requests.get(url, timeout=3)
-    except: pass
+    if "DOPLNIT" in url: return # Ochrana před chybou
+    try: 
+        # Timeout 3 sekundy zajišťuje, že systém nespadne, pokud server Benetronicu neodpovídá
+        requests.get(url, timeout=3)
+    except: 
+        pass
 
 # ==========================================
-# 6. LOGIKA OVLÁDÁNÍ A ZPRACOVÁNÍ POVELŮ
+# 5. LOGIKA OVLÁDÁNÍ A ZPRACOVÁNÍ POVELŮ (Z Joysticku)
 # ==========================================
 def on_mqtt_message(client, userdata, msg):
-    """Callback funkce volaná při jakémkoliv příchozím paketu přes MQTT sběrnici."""
+    """Tato funkce se spustí automaticky POKAŽDÉ, když do RPi dorazí data od ESP32 ovladače."""
     try:
-        topic = msg.topic
-        payload = msg.payload.decode()
+        topic = msg.topic # Dozvídáme se, v jakém tématu zpráva přišla
+        payload = msg.payload.decode() # Přeložení surových dat na text (např. "UP")
+        
+        # Ošetření stavu Bluetooth spojení
         if topic == "joystick/status":
             system_state["connection"] = payload
             if payload == "READY": log_activity("Ovladač se úspěšně připojil.")
+            
+        # Ošetření povelu (Pohyb joysticku)
         elif topic == "joystick/command":
             process_command(payload)
-    except Exception as e: print(e)
+    except Exception as e: 
+        print(e)
 
 def process_command(cmd):
-    """Namapuje hardwarové pohyby (UP/DOWN/LEFT/RIGHT) na funkce v uživatelském rozhraní."""
+    """Přeloží hardwarové směry (UP/DOWN/LEFT/RIGHT) na navigaci po obrazovce."""
     log_activity(f"Přijat příkaz od pacienta: {cmd}")
-    if cmd == "UP": go_back()                   
-    elif cmd == "RIGHT": move_selection(1)      
-    elif cmd == "LEFT": move_selection(-1)      
-    elif cmd in ["DOWN", "SELECT"]: trigger_action() 
+    
+    if cmd == "UP": go_back()                   # Nahoru = Krok zpět
+    elif cmd == "RIGHT": move_selection(1)      # Doprava = Posun o 1 kartu dál
+    elif cmd == "LEFT": move_selection(-1)      # Doleva = Posun o 1 kartu zpět
+    elif cmd in ["DOWN", "SELECT"]: trigger_action() # Dolů (nebo fyzické stisknutí tlačítka) = Potvrdit volbu
 
 def move_selection(direction):
     """
-    Posouvá aktivní výběr (kurzor) po položkách menu horizontálně.
-    Využívá logiku zbytků po dělení (modulo) pro vytvoření nekonečné 'kruhové' rotace.
+    Posouvá kurzor na obrazovce.
+    Využívá operátor modulo (%) k tzv. 'rotaci' (když přejedu na konec, skočí to zase na začátek).
     """
     menu_len = len(system_state["current_menu"])
     system_state["selected_index"] = (system_state["selected_index"] + direction) % menu_len
+    
+    # Najde slovník aktuálně vybrané karty a přečte ji nahlas
     item = system_state["current_menu"][system_state["selected_index"]]
     speak_text(item["label"])
 
 def go_back():
     """
-    Logika pro navigaci ZPĚT. Buď vynoří uživatele z hlubšího podmenu (LIFO zásobník),
-    nebo přepne hlavní sekci (Služby <-> Zařízení).
+    Složitější logika pro navigaci ZPĚT.
+    Zjišťuje, jestli jsme zanořeni v podmenu (pamatuje si to v historii), nebo jsme na hlavní obrazovce.
     """
+    # Máme něco v historii? (Jsme v podmenu např. TV)
     if len(system_state["menu_history"]) > 0:
+        # Vrátíme se do stavu před zanořením
         prev_state = system_state["menu_history"].pop()
         system_state["current_menu"] = prev_state["menu"]
         system_state["selected_index"] = prev_state["index"]
         system_state["message"] = prev_state["message"]
     else:
+        # Nejsme v historii. Jsme na kořenové obrazovce.
+        # Směr nahoru přepíná mezi Požadavky (HOME) a Elektronikou (DEVICES)
         if system_state["mode"] == "home":
             system_state["mode"] = "devices"
             system_state["current_menu"] = MENU_DEVICES
@@ -237,41 +270,48 @@ def go_back():
             system_state["current_menu"] = MENU_HOME
             system_state["selected_index"] = 0
             system_state["message"] = "Připraveno"
+            
+    # Po změně nabídky přečteme vybranou položku
     item = system_state["current_menu"][system_state["selected_index"]]
     speak_text(item["label"])
 
 def trigger_action():
     """
-    Hlavní výkonná funkce spuštěná při potvrzení položky.
-    Rozhoduje o spuštění hardwarové, softwarové nebo síťové akce.
+    NEJDŮLEŽITĚJŠÍ FUNKCE WEBU. Spustí se při potvrzení položky.
+    Vyhledá typ karty (type) a podle toho vykoná danou akci.
     """
+    # Získání dat o aktuálně vybrané kartě
     idx = system_state["selected_index"]
     item = system_state["current_menu"][idx]
+    
+    # Uloží se přesný čas stisku (frontend díky tomu problikne kartu zeleně)
     system_state["last_action"] = time.time()
     
-    # 1. Navigace do hlubšího podmenu
+    # --- 1. ZANOŘENÍ DO PODMENU ---
     if item.get("type") == "submenu":
+        # Uložíme současný stav do historie
         system_state["menu_history"].append({
             "menu": system_state["current_menu"], "index": system_state["selected_index"], "message": system_state["message"]
         })
         system_state["message"] = f"Menu: {item['label']}"
+        # Nahrajeme nové podmenu ze slovníku MENUS (např. 'tv_controls')
         system_state["current_menu"] = MENUS[item["target"]]
         system_state["selected_index"] = 0 
         speak_text(system_state["current_menu"][0]["label"])
         
-    # 2. Hardcodované navigační prvky a asistenční požadavky
+    # --- 2. OBYČEJNÉ NÁPISY A ZPĚT ---
     elif item.get("type") == "back": go_back()
     elif item.get("type") == "cancel": system_state["message"] = "Připraveno"
     elif item.get("type") == "req": system_state["message"] = f"Vybráno: {item['label']}"
     
-    # 3. Krizový SOS Poplach (HTTP požadavek na vzdálený server)
+    # --- 3. KRIZOVÝ SOS POPLACH (Vizuální lokální poplach) ---
     elif item.get("type") == "sos":
         system_state["message"] = "POPLACH: " + item['label']
-        system_state["sos_active"] = True
-        system_state["sos_timer"] = time.time()
-        threading.Thread(target=send_http_request, args=(URL_SOS_ON,)).start()
+        system_state["sos_active"] = True       # Rozbliká prohlížeč červeně
+        system_state["sos_timer"] = time.time() # Začne měřit 120 vteřin
+        # Z důvodu absence externího dohledového serveru byla HTTP část odstraněna. Zůstává vizuální upozornění na sesterně.
         
-    # 4. Lokální IoT integrace protokolu Zigbee
+    # --- 4. ZIGBEE LOKÁLNÍ CHYTRÁ DOMÁCNOST ---
     elif item.get("type") == "zigbee":
         try: mqtt_client.publish("zigbee2mqtt/zasuvka/set", '{"state": "TOGGLE"}')
         except: pass
@@ -281,145 +321,152 @@ def trigger_action():
         except: pass
         system_state["message"] = "Připraveno"
 
-    # 5. Odesílání externích HTTP požadavků (Interoperabilita - Benetronic)
+    # --- 5. EXTERNÍ HTTP POŽADAVKY (Případ Benetronic) ---
     elif item.get("type") == "http_get":
-        url = item.get("url")
+        url = item.get("url") # Vyčte konkrétní adresu z definice menu
         system_state["message"] = f"Odesláno: {item['label']}"
-        # Odešle dotaz ve vedlejším vlákně, aby nezamrzl web
+        # Okamžitě odešle dotaz na pozadí, aniž by zamrznul systém
         threading.Thread(target=send_http_request, args=(url,)).start()
 
-    # ==========================================
-    # 5. HYBRIDNÍ IR OVLÁDÁNÍ (Kaskádové načítání: Protokoly -> RAW data)
-    # ==========================================
+    # --- 6. HYBRIDNÍ IR OVLÁDÁNÍ (Kaskádové vysílání) ---
     elif item.get("type") == "ir":
         code_file = item['code']
         device_type = item.get('device', 'tv') 
         
-        # Nastavení správného kontextu pro iteraci značek
+        # Rozhodovací strom: Zjistí, kterou rodinu značek budeme pro vysílání procházet
         if device_type == "tv": brands = AVAILABLE_TV_BRANDS; system_state["message"] = f"TV: {item['label']}"
         elif device_type == "ac": brands = AVAILABLE_AC_BRANDS; system_state["message"] = f"KLÍMA: {item['label']}"
         elif device_type == "radio": brands = AVAILABLE_RADIO_BRANDS; system_state["message"] = f"RÁDIO: {item['label']}"
         elif device_type == "led": brands = AVAILABLE_LED_BRANDS; system_state["message"] = f"LED: {item['label']}"
         else: brands = []
         
-        # Algoritmus iteruje přes všechny dostupné značky daného spotřebiče
+        # Algoritmus iteruje přes všechny definované značky (Kobercový nálet)
         for brand in brands:
-            # Definování cest k oběma typům souborů v filesystému Linuxu
+            # Přesné systémové cesty v Linuxu pro oba druhy datových záznamů
             proto_path = f"/home/lukas/rpi/ir_codes/protokoly/{device_type}/{brand}/{code_file}.txt"
             raw_path = f"/home/lukas/rpi/ir_codes/raw_data/{device_type}/{brand}/{code_file}.txt"
 
-            # --- METODA A: ČISTÝ PROTOKOL (Nejvyšší priorita) ---
-            # Podívá se do složky 'protokoly'. Pokud soubor existuje, preferuje ho.
+            # --- METODA A: ČISTÝ PROTOKOL (Nejvyšší inženýrská priorita) ---
             if os.path.exists(proto_path):
                 try:
                     with open(proto_path, "r") as f:
                         content = f.read().strip()
                     
-                    # Extrakce dat z formátu "PROTOCOL:nec SCANCODE:0x877C10EF"
+                    # Logika parsování: Soubor musí vypadat např. jako "PROTOCOL:necx SCANCODE:0x70702"
                     if "PROTOCOL:" in content and "SCANCODE:" in content:
                         parts = content.split()
                         protocol = parts[0].split(":")[1]
                         scancode = parts[1].split(":")[1]
                         ir_arg = f"{protocol}:{scancode}"
                     else:
-                        ir_arg = content # Podpora, pokud tam uživatel napíše rovnou "nec:0x877C10EF"
+                        ir_arg = content 
                         
                     print(f"IR Vysílání PROTOKOL ({device_type.upper()} - {brand.upper()}): {ir_arg}")
-                    # Volání s parametrem -S pro čistý Scancode
+                    # Příkaz ir-ctl -S vygeneruje signál matematicky se strojovou přesností jádra Linuxu
                     subprocess.run(["ir-ctl", "-d", "/dev/lirc0", "-S", ir_arg], check=True)
-                    time.sleep(0.3)
+                    time.sleep(0.3) # Pauza mezi pakety pro zamezení interference
                     
-                    # PŘESKOČENÍ RAW DAT: Příkaz 'continue' zajistí, že se záložní RAW data budou ignorovat
+                    # EXTRÉMNĚ DŮLEŽITÉ: Příkaz 'continue' zajistí, že pokud se vyslal čistý protokol,
+                    # skript přeskočí metodu B a jde na další značku televize.
                     continue 
                 except Exception as e:
                     print(f"Chyba u protokolu: {e}")
 
-            # --- METODA B: RAW DATA (Záložní plán / Fallback) ---
-            # Pokud se kód nedostal k 'continue' (soubor protokolu neexistuje), sáhne po starých RAW datech.
+            # --- METODA B: RAW DATA (Fallback / Záchranná síť) ---
+            # Tento kód se spustí POUZE, pokud selže Metoda A. Využívá se hlavně pro masivní pakety klimatizací.
             if os.path.exists(raw_path):
                 print(f"IR Vysílání RAW ({device_type.upper()} - {brand.upper()}): {raw_path}")
                 try: 
-                    # Volání s parametrem --send pro vyslání surových pulzů
+                    # Příkaz ir-ctl --send odešle surové časové pulzy (šumový záznam)
                     subprocess.run(["ir-ctl", "-d", "/dev/lirc0", "--send", raw_path], check=True)
                     time.sleep(0.3) 
                 except Exception as e: print(e)
 
 # ==========================================
-# 7. INICIALIZACE MQTT KLIENTA
+# 6. INICIALIZACE MQTT KLIENTA PRO ESP32
 # ==========================================
+# Vytvoření komunikačního uzlu
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+# Spojení funkce 'on_mqtt_message' s událostí příchozí zprávy
 mqtt_client.on_message = on_mqtt_message
 
 def on_connect(client, userdata, flags, reason_code, properties):
-    # Přihlášení k odběru všech dat směřujících z/do ovladače
+    # Ihned po nastartování brokeru se systém přihlásí k odběru (zavadí ucho) na vše v sekci 'joystick'
     client.subscribe("joystick/#")
 mqtt_client.on_connect = on_connect
 
 def start_mqtt():
-    """Funkce běžící v samostatném vlákně zajišťující permanentní síťové naslouchání."""
+    """Funkce běžící odděleně od webu na pozadí. Pokud spadne sběrnice, zkusí se za 5 vteřin obnovit."""
     while True:
         try:
             mqtt_client.connect("localhost", 1883, 60)
-            mqtt_client.loop_forever()
+            mqtt_client.loop_forever() # Drží připojení otevřené (Nekonečná smyčka)
         except Exception as e: time.sleep(5)
 
 # ==========================================
-# 8. WEBOVÉ API (FLASK ENDPOINTY)
+# 7. WEBOVÉ API (FLASK ENDPOINTY - Rozhraní pro JavaScript)
 # ==========================================
 @app.route('/')
 def index():
-    """Servíruje primární HTML šablonu uživatelského rozhraní."""
+    """Základní routa. Když zadáš IP do prohlížeče, pošle se ti grafický vzhled (HTML)."""
     return render_template('index.html')
 
 @app.route('/api/status')
 def get_status():
     """
-    Hlavní synchronizační endpoint pro AJAX Polling klienta. 
-    Zároveň automaticky utne běžící SOS poplach po uplynutí 120 vteřin.
+    AJAX endpoint. Z tohoto místa si mobil/PC tahá 3x za vteřinu aktuální stav (zda má pípat SOS, jakou kartu zvýraznit apod.)
     """
+    # Logika pro automatické utišení vizuálního SOS alarmu po 120 vteřinách
     if system_state.get("sos_active") and (time.time() - system_state.get("sos_timer", 0) > 120):
         system_state["sos_active"] = False
         system_state["message"] = "Připraveno"
-        threading.Thread(target=send_http_request, args=(URL_SOS_OFF,)).start()
-    return jsonify(system_state)
+        
+    return jsonify(system_state) # Odešle slovník zkonvertovaný do formátu JSON
 
 @app.route('/api/click/<int:index>', methods=['POST'])
 def web_click(index):
-    """Endpoint umožňující ovládat položky menu manuálně pomocí dotyku či myši na obrazovce."""
+    """Pomocná funkce, pokud na displej u postele ťukne doktor prstem místo joysticku."""
     if 0 <= index < len(system_state["current_menu"]):
         system_state["selected_index"] = index
-        trigger_action()
+        trigger_action() # Tímto uměle vyvoláme stisknutí tlačítka
     return jsonify({"status": "ok"})
 
 @app.route('/api/reset', methods=['POST'])
 def reset_message():
-    """Zrušení výstražné hlášky a storno SOS poplachu tlačítkem 'VYŘÍZENO'."""
+    """Vypnutí SOS poplachu a chybových zpráv na obrazovce tlačítkem 'VYŘÍZENO'."""
     system_state["sos_active"] = False
     system_state["message"] = "Připraveno"
-    threading.Thread(target=send_http_request, args=(URL_SOS_OFF,)).start()
     return jsonify({"status": "reset"})
 
 @app.route('/api/ota', methods=['POST'])
 def trigger_ota():
-    """Endpoint pro vyvolání vzdálené aktualizace (OTA) mikrokontroléru ESP32 přes Bluetooth."""
+    """Skrz MQTT pošle signál, že si má ESP32 ovladač sám sobě updatovat kód přes WiFi."""
     mqtt_client.publish("joystick/ota", "START")
     system_state["message"] = "Povel k aktualizaci odeslán."
     return jsonify({"status": "ota_started"})
 
 @app.route('/api/tts_toggle', methods=['POST'])
 def toggle_tts():
-    """Přepíná globální proměnnou, která povoluje/zakazuje zvukový výstup (espeak)."""
+    """Zapínání a vypínání otravného 'čtení' z reproduktoru."""
+    # Prohodí True za False a naopak (Negace aktuálního stavu)
     system_state["tts_enabled"] = not system_state.get("tts_enabled", False)
-    if system_state["tts_enabled"]: speak_text("Hlasový asistent zapnut")
-    else: subprocess.run(["killall", "espeak"], stderr=subprocess.DEVNULL)
+    if system_state["tts_enabled"]: 
+        speak_text("Hlasový asistent zapnut")
+    else: 
+        # Zastaví rozjetý espeak pomocí linuxového příkazu killall
+        subprocess.run(["killall", "espeak"], stderr=subprocess.DEVNULL)
     return jsonify({"status": "ok", "tts_enabled": system_state["tts_enabled"]})
 
 # ==========================================
-# 9. VSTUPNÍ BOD APLIKACE
+# 8. VSTUPNÍ BOD APLIKACE (Zaváděcí skript)
 # ==========================================
+# Tento blok se spustí pouze, když se skript spustí napřímo příkazem python web.py
 if __name__ == '__main__':
     log_activity("--- SYSTÉM NASTARTOVÁN ---")
-    # Start MQTT klienta jako Daemona (vlákno se ukončí spolu s hlavním programem)
+    
+    # 1. Start MQTT klienta jako Daemona (vlákno se poslušně ukončí, pokud spadne hlavní web)
     threading.Thread(target=start_mqtt, daemon=True).start()
-    # Start webového serveru (0.0.0.0 povoluje přístup odkudkoliv ze sítě či P2P tunelu)
+    
+    # 2. Start samotného webového serveru
+    # host='0.0.0.0' znamená, že webová stránka je přístupná všem zařízením na domácí Wi-Fi, ne jen samotné malině.
     app.run(host='0.0.0.0', port=5000, debug=False)
