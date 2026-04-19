@@ -331,7 +331,7 @@ def trigger_action():
         system_state["sos_active"] = True       # Rozbliká prohlížeč červeně
         system_state["sos_timer"] = time.time() # Začne měřit 120 vteřin
         
-        # NOVÉ: Odeslání kritické hlášky na vzdálený dohledový server vedoucího
+        # Odeslání kritické hlášky na vzdálený dohledový server
         # Funkce urllib.parse.quote() se postará o to, aby se mezery a háčky bezpečně přepsaly do webového formátu (např. %20)
         encoded_msg = urllib.parse.quote("Pacient potřebuje pomoc")
         url = f"https://chytrepomucky.cz/smarthome/klient16drv651vd6sJwer95d/api.php?zvonek=1&hlaska={encoded_msg}&kontext=Pokoj%2012"
