@@ -16,7 +16,7 @@ která inteligentně upřednostňuje čisté protokoly před RAW daty.
 from flask import Flask, render_template, jsonify, request 
 # Paho MQTT: Knihovna pro naslouchání zprávám z joysticku (z ESP32)
 import paho.mqtt.client as mqtt  
-# Requests: Modul pro odesílání HTTP požadavků (ovládání domácnosti Benetronic)
+# Requests: Modul pro odesílání HTTP požadavků (ovládání domácnosti Benetronic a sesterny)
 import requests                  
 # Threading: Umožňuje běh více věcí najednou (např. web běží, zatímco se odesílá HTTP dotaz nebo se čeká na animaci)
 import threading                 
@@ -28,6 +28,8 @@ import subprocess
 import datetime                  
 # OS: Práce se souborovým systémem Linuxu (hlavně ověřování, zda existuje .txt soubor s IR kódem)
 import os                        
+# Urllib: NOVÉ - Knihovna pro bezpečné zakódování textu do URL adresy (převede mezery a háčky, aby to web pochopil)
+import urllib.parse              
 
 # Inicializace samotné webové aplikace do proměnné 'app'
 app = Flask(__name__)
@@ -47,7 +49,7 @@ MENU_HOME = [
     {"id": 0, "label": "MÁM ŽÍZEŇ", "icon": "fa-glass-water", "color": "primary", "type": "req"},
     {"id": 1, "label": "MÁM HLAD", "icon": "fa-utensils", "color": "warning", "type": "req"},
     {"id": 2, "label": "SVĚTLO", "icon": "fa-lightbulb", "color": "success", "type": "zigbee"},
-    # Typ 'sos' vyvolá vizuální poplach (blikání obrazovky na sesterně)
+    # Typ 'sos' vyvolá vizuální poplach (blikání obrazovky na sesterně a HTTP požadavek do cloudu)
     {"id": 3, "label": "POMOC", "icon": "fa-hand-holding-medical", "color": "danger", "type": "sos"},
     {"id": 4, "label": "ZRUŠIT", "icon": "fa-rotate-left", "color": "secondary", "type": "cancel"}
 ]
@@ -193,12 +195,12 @@ def speak_text(text):
 
 def send_http_request(url):
     """
-    Odešle HTTP GET dotaz (slouží pro domácnost Benetronic).
+    Odešle HTTP GET dotaz (slouží pro domácnost Benetronic a vzdálenou sesternu).
     Běží vždy v novém vlákně, aby čekání na odpověď serveru nezablokovalo webové rozhraní.
     """
     if "DOPLNIT" in url: return # Ochrana před chybou
     try: 
-        # Timeout 3 sekundy zajišťuje, že systém nespadne, pokud server Benetronicu neodpovídá
+        # Timeout 3 sekundy zajišťuje, že systém nespadne, pokud cílový server neodpovídá
         requests.get(url, timeout=3)
     except: 
         pass
@@ -323,12 +325,17 @@ def trigger_action():
     elif item.get("type") == "cancel": system_state["message"] = "Připraveno"
     elif item.get("type") == "req": system_state["message"] = f"Vybráno: {item['label']}"
     
-    # --- 3. KRIZOVÝ SOS POPLACH (Vizuální lokální poplach) ---
+    # --- 3. KRIZOVÝ SOS POPLACH (Vizuální lokální poplach + Sesterna chytrepomucky.cz) ---
     elif item.get("type") == "sos":
         system_state["message"] = "POPLACH: " + item['label']
         system_state["sos_active"] = True       # Rozbliká prohlížeč červeně
         system_state["sos_timer"] = time.time() # Začne měřit 120 vteřin
-        # Z důvodu absence externího dohledového serveru byla HTTP část odstraněna. Zůstává vizuální upozornění na sesterně.
+        
+        # NOVÉ: Odeslání kritické hlášky na vzdálený dohledový server vedoucího
+        # Funkce urllib.parse.quote() se postará o to, aby se mezery a háčky bezpečně přepsaly do webového formátu (např. %20)
+        encoded_msg = urllib.parse.quote("Pacient potřebuje pomoc")
+        url = f"https://chytrepomucky.cz/smarthome/klient16drv651vd6sJwer95d/api.php?zvonek=1&hlaska={encoded_msg}&kontext=Pokoj%2012"
+        threading.Thread(target=send_http_request, args=(url,)).start()
         
     # --- 4. ZIGBEE LOKÁLNÍ CHYTRÁ DOMÁCNOST ---
     elif item.get("type") == "zigbee":
@@ -339,7 +346,9 @@ def trigger_action():
     # --- 5. EXTERNÍ HTTP POŽADAVKY (Případ Benetronic) ---
     elif item.get("type") == "http_get":
         url = item.get("url") # Vyčte konkrétní adresu z definice menu
-        system_state["message"] = f"Odesláno: {item['label']}"
+        # OPRAVA: Nastaveno na "Připraveno", díky čemuž na webu nevyskočí varovná žlutá zpráva a tlačítko VYŘÍZENO.
+        # Akce proběhne transparentně jen s potvrzujícím zeleným bliknutím karty.
+        system_state["message"] = "Připraveno" 
         # Okamžitě odešle dotaz na pozadí, aniž by zamrznul systém
         threading.Thread(target=send_http_request, args=(url,)).start()
 
@@ -451,6 +460,11 @@ def reset_message():
     """Vypnutí SOS poplachu a chybových zpráv na obrazovce tlačítkem 'VYŘÍZENO'."""
     system_state["sos_active"] = False
     system_state["message"] = "Připraveno"
+    
+    # NOVÉ: Odeslání informace na sesternu (chytrepomucky.cz), že je poplach zrušen
+    url = "https://chytrepomucky.cz/smarthome/klient16drv651vd6sJwer95d/api.php?zvonek=0&hlaska=Vyrizeno&kontext=Pokoj%2012"
+    threading.Thread(target=send_http_request, args=(url,)).start()
+    
     return jsonify({"status": "reset"})
 
 @app.route('/api/ota', methods=['POST'])
