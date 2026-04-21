@@ -188,7 +188,7 @@ def speak_text(text):
     # Provede se pouze, pokud je čtení v systému zapnuto (přepíná se v horní liště webu)
     if system_state.get("tts_enabled", False):
         # 1. OPRAVA: Nahrazení speciálních znaků za reálná slova
-        upraveny_text = text.replace("+", " plus").replace("-", " mínus").replace("/", " lomeno ")
+        upraveny_text = text.replace("+", " plus").replace("-", " mínus").replace("/", " lomeno ").replace("ZAP/VYP", "Zapnout vypnout")
         
         try:
             # Trik: Nejprve tvrdě ukončíme případný probíhající proces espeak
