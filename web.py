@@ -159,6 +159,7 @@ system_state = {
     "selected_index": 0,         # Index (pořadí) karty, na které je aktuálně kurzor (vybrána joystickem)
     "message": "Připraveno",     # Informační zpráva zobrazená v horní liště (např. "MÁM HLAD")
     "active_alert": False,       # NOVÉ: Pokud je True, brání přepsání výstražné zprávy při pohybu v menu
+    "active_requests": [],       # NOVÉ: Paměť pro více požadavků najednou (např. HLAD + ŽÍZEŇ)
     "connection": "SLEEP",       # Stav spojení s ESP32 ovladačem (READY, CONNECTING, SLEEP)
     "last_action": 0,            # Časové razítko poslední akce (slouží pro spuštění zelené flash animace karty)
     "sos_active": False,         # Logická hodnota (Zda obrazovka bliká červeně)
@@ -265,7 +266,7 @@ def go_back(delayed=False):
             system_state["current_menu"] = prev_state["menu"]
             system_state["selected_index"] = prev_state["index"]
             
-            # Zprávu o historii přepíšeme pouze tehdy, když zrovna nesvítí poplach
+            # NOVÉ: Zprávu o historii přepíšeme pouze tehdy, když zrovna nesvítí poplach / požadavek
             if not system_state.get("active_alert"):
                 system_state["message"] = prev_state["message"]
         else:
@@ -276,7 +277,7 @@ def go_back(delayed=False):
                 system_state["current_menu"] = MENU_DEVICES
                 system_state["selected_index"] = 0
                 
-                # Ochrana proti smazání poplachu při přepnutí režimu
+                # NOVÉ: Ochrana proti smazání poplachu při přepnutí režimu
                 if not system_state.get("active_alert"):
                     system_state["message"] = "Režim: ZAŘÍZENÍ"
             else:
@@ -284,7 +285,7 @@ def go_back(delayed=False):
                 system_state["current_menu"] = MENU_HOME
                 system_state["selected_index"] = 0
                 
-                # Ochrana proti smazání poplachu
+                # NOVÉ: Ochrana proti smazání poplachu
                 if not system_state.get("active_alert"):
                     system_state["message"] = "Připraveno"
                 
@@ -324,7 +325,7 @@ def trigger_action():
         def delayed_submenu_switch():
             time.sleep(0.4) 
             
-            # Pokud je aktivní poplach, nepřepisujeme ho názvem menu
+            # NOVÉ: Pokud je aktivní poplach/požadavek, nepřepisujeme ho názvem menu
             if not system_state.get("active_alert"):
                 system_state["message"] = f"Menu: {item['label']}"
                 
@@ -337,25 +338,45 @@ def trigger_action():
     # --- 2. OBYČEJNÉ NÁPISY A ZPĚT ---
     elif item.get("type") == "back": go_back(delayed=True) # Zde posíláme True, abychom také počkali na animaci
     elif item.get("type") == "cancel": 
-        # Zrušení poplachu i běžných požadavků ze strany pacienta ("ZRUŠIT")
+        # NOVÉ: Zrušení poplachu i běžných požadavků ze strany pacienta ("ZRUŠIT")
         system_state["active_alert"] = False
         system_state["sos_active"] = False
+        system_state["active_requests"] = [] # NOVÉ: Vymaže celý seznam kumulovaných požadavků
         system_state["message"] = "Připraveno"
         
     elif item.get("type") == "req": 
-        # U požadavků uzamkneme lištu nastavením active_alert = True
+        # NOVÉ: U požadavků uzamkneme lištu nastavením active_alert = True
         system_state["active_alert"] = True
-        system_state["message"] = f"Vybráno: {item['label']}"
+        
+        # NOVÉ: Přidáme aktuální požadavek do seznamu (pokud tam už náhodou není)
+        if item['label'] not in system_state["active_requests"]:
+            system_state["active_requests"].append(item['label'])
+            
+        # NOVÉ: Složíme text ze všech aktivních požadavků (např. "MÁM ŽÍZEŇ + MÁM HLAD")
+        spojeny_text = " + ".join(system_state["active_requests"])
+        
+        # NOVÉ: Pokud už náhodou běží SOS, zachováme slovo POPLACH, jinak dáme Vybráno
+        if system_state["sos_active"]:
+            system_state["message"] = f"POPLACH: {spojeny_text}"
+        else:
+            system_state["message"] = f"Vybráno: {spojeny_text}"
     
     # --- 3. KRIZOVÝ SOS POPLACH (Vizuální lokální poplach + Sesterna chytrepomucky.cz) ---
     elif item.get("type") == "sos":
-        # Uzamkne lištu i pro SOS
+        # NOVÉ: Uzamkne lištu i pro SOS
         system_state["active_alert"] = True     
-        system_state["message"] = "POPLACH: " + item['label']
         system_state["sos_active"] = True       # Rozbliká prohlížeč červeně
         system_state["sos_timer"] = time.time() # Začne měřit 120 vteřin
         
-        # Odeslání kritické hlášky na vzdálený dohledový server vedoucího
+        # NOVÉ: Přidáme POMOC do seznamu požadavků na první místo (je nejdůležitější), pokud tam není
+        if item['label'] not in system_state["active_requests"]:
+            system_state["active_requests"].insert(0, item['label'])
+            
+        # NOVÉ: Složíme text i se všemi předchozími volbami
+        spojeny_text = " + ".join(system_state["active_requests"])
+        system_state["message"] = f"POPLACH: {spojeny_text}"
+        
+        # NOVÉ: Odeslání kritické hlášky na vzdálený dohledový server vedoucího
         # Funkce urllib.parse.quote() se postará o to, aby se mezery a háčky bezpečně přepsaly do webového formátu (např. %20)
         encoded_msg = urllib.parse.quote("Pacient potřebuje pomoc")
         url = f"https://chytrepomucky.cz/smarthome/klient16drv651vd6sJwer95d/api.php?zvonek=1&hlaska={encoded_msg}&kontext=Pokoj%2012"
@@ -366,14 +387,14 @@ def trigger_action():
         try: mqtt_client.publish("zigbee2mqtt/zasuvka/set", '{"state": "TOGGLE"}')
         except: pass
         
-        # Zprávu o připravenosti nastavíme jen tehdy, když nevisí poplach
+        # NOVÉ: Zprávu o připravenosti nastavíme jen tehdy, když nevisí poplach/požadavek
         if not system_state.get("active_alert"):
             system_state["message"] = "Připraveno"
 
     # --- 5. EXTERNÍ HTTP POŽADAVKY (Případ Benetronic) ---
     elif item.get("type") == "http_get":
         url = item.get("url") # Vyčte konkrétní adresu z definice menu
-        # Nastaveno na "Připraveno", pouze pokud není aktivní poplach.
+        # NOVÉ: Nastaveno na "Připraveno", pouze pokud není aktivní poplach.
         if not system_state.get("active_alert"):
             system_state["message"] = "Připraveno" 
         # Okamžitě odešle dotaz na pozadí, aniž by zamrznul systém
@@ -385,7 +406,7 @@ def trigger_action():
         device_type = item.get('device', 'tv') 
         
         # Rozhodovací strom: Zjistí, kterou rodinu značek budeme pro vysílání procházet
-        # Všude přidána kontrola if not active_alert pro ochranu lišty
+        # NOVÉ: Všude přidána kontrola if not active_alert pro ochranu výstražné zprávy v liště
         if device_type == "tv": 
             brands = AVAILABLE_TV_BRANDS
             if not system_state.get("active_alert"): system_state["message"] = f"TV: {item['label']}"
@@ -480,8 +501,9 @@ def get_status():
     if system_state.get("sos_active") and (time.time() - system_state.get("sos_timer", 0) > 120):
         system_state["sos_active"] = False
         
-        # Po vypršení času uvolníme lištu
+        # NOVÉ: Po vypršení času uvolníme lištu a smažeme seznam požadavků
         system_state["active_alert"] = False 
+        system_state["active_requests"] = [] 
         system_state["message"] = "Připraveno"
         
     return jsonify(system_state) # Odešle slovník zkonvertovaný do formátu JSON
@@ -499,8 +521,9 @@ def reset_message():
     """Vypnutí SOS poplachu a chybových zpráv na obrazovce tlačítkem 'VYŘÍZENO'."""
     system_state["sos_active"] = False
     
-    # Uvolnění lišty (zmáčknutím VYŘÍZENO)
+    # NOVÉ: Uvolnění lišty sestrou (zmáčknutím VYŘÍZENO) a smazání fronty
     system_state["active_alert"] = False 
+    system_state["active_requests"] = [] 
     system_state["message"] = "Připraveno"
     
     # NOVÉ: Odeslání informace na sesternu (chytrepomucky.cz), že je poplach zrušen
@@ -514,7 +537,7 @@ def trigger_ota():
     """Skrz MQTT pošle signál, že si má ESP32 ovladač sám sobě updatovat kód přes WiFi."""
     mqtt_client.publish("joystick/ota", "START")
     
-    # Ochrana před přepsáním aktivního poplachu textem o aktualizaci
+    # NOVÉ: Ochrana před přepsáním aktivního poplachu textem o aktualizaci
     if not system_state.get("active_alert"):
         system_state["message"] = "Povel k aktualizaci odeslán."
     return jsonify({"status": "ota_started"})
