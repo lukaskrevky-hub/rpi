@@ -187,14 +187,16 @@ def speak_text(text):
     """
     # Provede se pouze, pokud je čtení v systému zapnuto (přepíná se v horní liště webu)
     if system_state.get("tts_enabled", False):
-        # 1. OPRAVA: Nahrazení speciálních znaků za reálná slova
-        upraveny_text = text.replace("+", " plus").replace("-", " mínus").replace("/", " lomeno ").replace("ZAP/VYP", "Zapnout vypnout")
-        
+        # NOVÉ: Zrušen nevhodný převod na malá písmena, aby espeak mohl normálně číst texty jako "SVĚTLO".
+        # Přidáno explicitní nahrazení zkratky "ZAP/VYP" na reálná slova a vytvoření mezer kolem jiných lomítek.
+        upraveny_text = text.replace("ZAP/VYP", "Zapnout vypnout") \
+                            .replace("/", " ") \
+                            .replace("+", " plus") \
+                            .replace("-", " mínus")
         try:
-            # Trik: Nejprve tvrdě ukončíme případný probíhající proces espeak
+            # Trik: Nejprve tvrdě ukončíme případný probíhající proces espeak (pokud uživatel posunul joystick rychle)
             subprocess.run(["killall", "espeak"], stderr=subprocess.DEVNULL)
-            
-            # 2. Zpomalení řeči (-s 140) a výběr lepšího hlasu (cs+f2 = žena, cs+m3 = muž)
+            # Zpomalení řeči (-s 140) a výběr lepšího hlasu (cs+f2 = žena, cs+m3 = muž)
             subprocess.Popen(["espeak", "-v", "cs+f2", "-s", "140", upraveny_text], stderr=subprocess.DEVNULL)
         except Exception as e: 
             print(e)
