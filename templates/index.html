@@ -111,14 +111,14 @@
                         }
                     });
 
-                    // KROK 3: Animace úspěšného odeslání povelu (Flash efekt)
+                    // KROK 3: Animace úspěšného odeslání povelu
                     // Pokud server hlásí novější čas akce, než jaký si pamatujeme...
                     if (data.last_action && data.last_action > lastActionTime) {
                         lastActionTime = data.last_action; // Zapíšeme si nový čas
                         // Najdeme tu kartu, na které pacient zrovna stojí...
                         const activeCard = document.querySelector('.joystick-active');
                         if (activeCard) {
-                            // Odebereme starou animaci a "trikem" s offsetWidth přinutíme prohlížeč ji okamžitě znovu přidat. Karta tak krátce blikne zeleně.
+                            // Odebereme starou animaci a s offsetWidth přinutíme prohlížeč ji okamžitě znovu přidat. Karta tak krátce blikne zeleně.
                             activeCard.classList.remove('flash-animation');
                             void activeCard.offsetWidth; 
                             activeCard.classList.add('flash-animation');
@@ -126,7 +126,7 @@
                     }
 
                     // KROK 4: Krizový stav
-                    // Pokud Python hlásí, že je aktivní SOS režim (data.sos_active == true), přidáme celému tělu webu třídu, která rozbliká obrazovku do ruda.
+                    // Pokud Python hlásí, že je aktivní SOS režim (data.sos_active == true), přidáme celému webu třídu, která rozbliká obrazovku do ruda.
                     if (data.sos_active) {
                         document.body.classList.add('sos-blinking');
                     } else {
@@ -141,7 +141,7 @@
 
         /**
          * FUNKCE PRO VYKRESLENÍ TLAČÍTEK (DOM Manipulace)
-         * Tato funkce bere čistá data z Pythonu (např. {"label": "TV", "icon": "fa-tv"}) a lepí z nich HTML kód.
+         * Tato funkce bere čistá data z Pythonu (např. {"label": "TV", "icon": "fa-tv"}) a dělá z nich HTML kód.
          */
         function renderMenu(menuItems) {
             // Najdeme hlavní obal pro tlačítka a celý jeho dosavadní obsah vymažeme (aby se tlačítka neduplikovala)
@@ -159,8 +159,8 @@
             // Projdeme pole tlačítek položku po položce...
             menuItems.forEach((item, index) => {
                 // Sestavíme textový řetězec, který obsahuje kompletní HTML kód jedné karty.
-                // Všimni si, že pomocí ${...} vkládáme do textu proměnné z Pythonu (barvy, ikony, názvy).
-                // Atribut onclick volá naši funkci manualClick(), aby šlo na kartu kliknout i myší, nejen joystickem.
+                // Pomocí ${...} vkládáme do textu proměnné z Pythonu (barvy, ikony, názvy).
+                // Atribut onclick volá funkci manualClick(), aby šlo na kartu kliknout i myší, nejen joystickem.
                 const html = `
                 <div class="${colClass}">
                     <div class="card h-100 text-center p-3 text-white ${cardClass}" onclick="manualClick(${index})">
@@ -170,7 +170,7 @@
                         </div>
                     </div>
                 </div>`;
-                // Vytvořený kus HTML kódu přilepíme na konec kontejneru
+                // Vytvořený HTML kódu přilepíme na konec kontejneru
                 container.innerHTML += html; 
             });
         }
@@ -213,7 +213,7 @@
             // AKTUALIZACE TLAČÍTKA HLASOVÉHO ASISTENTA (TTS)
             const ttsBtn = document.getElementById('tts-button');
             if (ttsBtn) {
-                // Pokud nám Python pošle, že je čtení aktivní...
+                // Pokud Python pošle, že je čtení aktivní...
                 // (Zachováme skrytý text pro mobily pomocí span d-none)
                 if (data.tts_enabled) {
                     ttsBtn.classList.replace('btn-outline-info', 'btn-info'); // Plná modrá barva pro aktivní stav
@@ -225,7 +225,7 @@
                 }
             }
 
-            // AKTUALIZACE STAVU ESP32 (Odznak nahoře vpravo)
+            // AKTUALIZACE STAVU ESP32
             const badge = document.getElementById('connection-indicator');
             const icon = badge.querySelector('i');
             const text = badge.querySelector('span');
@@ -233,7 +233,7 @@
             // Nejdřív odstraníme všechny možné stavové barvy z předchozího cyklu
             badge.classList.remove('status-ready', 'status-sleep', 'status-conn');
 
-            // Pokud nám Python hlásí, že je ovladač připojen k webserveru...
+            // Pokud Python hlásí, že je ovladač připojen k webserveru...
             if (data.connection === 'READY') {
                 badge.classList.add('status-ready'); // Přidáme zelenou barvu
                 icon.className = 'fa-solid fa-gamepad'; // Ikona ovladače
@@ -254,9 +254,9 @@
         }
         
         // --- API VOLÁNÍ (Odesílání povelů na server) ---
-        // Všechny tyto funkce odesílají HTTP POST požadavek na náš Python server. Server pak podle URL adresy pozná, co má udělat.
+        // Všechny tyto funkce odesílají HTTP POST požadavek na Python server. Server pak podle URL adresy pozná, co má udělat.
 
-        // Odešle na server číslo karty, na kterou ošetřovatel ručně klikl myší nebo dotykem na displeji
+        // Odešle na server číslo karty, na kterou personál ručně klikl myší nebo dotykem na displeji
         function manualClick(id) { fetch('/api/click/' + id, { method: 'POST' }); }
         
         // Odešle na server povel ke zrušení poplachu / smazání zprávy (voláno po kliknutí na červené tlačítko VYŘÍZENO)
