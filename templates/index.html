@@ -52,23 +52,23 @@
 
     <script>
         // GLOBÁLNÍ PROMĚNNÉ
-        // lastMenuStr slouží jako "paměť". Ukládáme si sem aktuální podobu menu. Pokud nám server pošle úplně stejné menu, nebudeme stránku zbytečně překreslovat.
+        // lastMenuStr slouží jako "paměť". Ukládání aktuální podoby menu. Pokud server pošle úplně stejné menu, nebude stránku zbytečně překreslovat.
         let lastMenuStr = "";       
         // lastActionTime pamatuje čas poslední odeslané akce. Zabraňuje tomu, aby se animace potvrzení přehrávala pořád dokola.
         let lastActionTime = 0;     
 
         /**
          * HLAVNÍ FUNKCE SYSTÉMU: updateStatus()
-         * Tato funkce funguje jako srdce klienta. Pravidelně se ptá serveru (web.py): "Co je nového?"
+         * Pravidelně se ptá serveru (web.py) na změnu.
          */
         function updateStatus() {
-            // Používáme Fetch API pro asynchronní požadavek (AJAX) na naši adresu /api/status.
-            // Fígl '?t=...' (Cache Buster) přidává k URL aktuální čas v milisekundách. Tím oklameme prohlížeč, aby si myslel, že jde o unikátní dotaz, a nestahoval stará data z paměti.
+            // Používá se Fetch API pro asynchronní požadavek (AJAX) na adresu /api/status.
+            // Fígl '?t=...' (Cache Buster) přidává k URL aktuální čas v milisekundách. Tím nestahuje stará data z paměti.
             fetch('/api/status?t=' + new Date().getTime())
-                .then(response => response.json()) // Jakmile server odpoví, převedeme jeho odpověď do formátu JSON (JavaScriptový objekt)
+                .then(response => response.json()) // Jakmile server odpoví, převede jeho odpověď do formátu JSON
                 .then(data => {
                     // KROK 1: Kontrola a vykreslení menu
-                    // Převedeme přijaté pole tlačítek (current_menu) na obyčejný textový řetězec, aby šlo snadno porovnat s tím, co už máme vykreslené.
+                    // Převedení přijatého pole tlačítek (current_menu) na obyčejný textový řetězec, aby šlo snadno porovnat s tím, co už je vykreslené.
                     const currentMenuStr = JSON.stringify(data.current_menu);
                     
                     // Pokud se přijaté menu liší od toho, které vidíme na obrazovce (uživatel např. přepnul z TV na LED pásek)...
