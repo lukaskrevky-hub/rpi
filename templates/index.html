@@ -268,7 +268,6 @@
         // Odešle na server povel pro zapnutí/vypnutí čtení obrazovky (TTS)
         function toggleTts() { fetch('/api/tts_toggle', { method: 'POST' }); }
         
-        // --- NEJDŮLEŽITĚJŠÍ ŘÁDEK SYSTÉMU ---
         // Funkce setInterval zajistí, že se naše hlavní smyčka updateStatus() bude spouštět neustále dokola, přesně každých 300 milisekund (cca 3x za vteřinu).
         // Díky tomu webové rozhraní okamžitě reaguje na pohyby joysticku v pacientově ruce, ačkoliv jde přes bezdrátovou síť.
         setInterval(updateStatus, 300);
