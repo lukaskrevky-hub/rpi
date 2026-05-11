@@ -37,7 +37,7 @@ TOPIC_STATUS = "joystick/status"          # Téma, kam se zapisuje aktuální st
 # 3. INICIALIZACE DATOVÝCH STRUKTUR
 # ==========================================
 # Jelikož MQTT klient běží ve vlastním synchronním vlákně a Bleak běží v asynchronní smyčce,
-# k bezpečnému předávání příkazů (např. povel k OTA aktualizaci) používáme Queue (frontu).
+# k bezpečnému předávání příkazů (např. povel k OTA aktualizaci) slouží Queue (fronta).
 command_queue = queue.Queue()
 
 # ==========================================
@@ -46,8 +46,8 @@ command_queue = queue.Queue()
 def on_mqtt_message(client, userdata, msg):
     """
     Callback funkce volaná při přijetí zprávy z MQTT.
-    Pokud přijde z webu povel pro OTA, vložíme ho do fronty,
-    odkud si ho později vyzvedne asynchronní BLE smyčka.
+    Pokud přijde z webu povel pro OTA, vloží se do fronty,
+    odkud si ho později vezme asynchronní BLE smyčka.
     """
     if msg.topic == "joystick/ota":
         command_queue.put(msg.payload.decode('utf-8'))
@@ -124,21 +124,21 @@ async def connect_and_listen():
                 nonlocal target_device
                 if device.address.lower() == TARGET_MAC.lower():
                     # --- ANTI-PHANTOM FILTER ---
-                    # Linuxový Bluetooth (BlueZ) má zlozvyk pamatovat si stará vysílání (cache).
-                    # Když se ESP32 uspí, RPi občas z mezipaměti vyhrabe starý paket a tváří se, 
+                    # Linuxový Bluetooth (BlueZ) si pamatuje stará vysílání (cache).
+                    # Když se ESP32 uspí, RPi z mezipaměti vezme starý paket a tváří se, 
                     # že ESP32 vysílá. Ignorujeme proto vše, co přijde v první vteřině skenování.
                     if time.time() - scanner_start_time > 1.0:
-                        target_device = device    # Našli jsme čerstvé ESP32
-                        device_event.set()        # Zvedneme vlajku a jdeme se připojit       
+                        target_device = device    # Nalezeno ESP32
+                        device_event.set()        # Připojení
 
-            # Spuštění skenování s naším filtrem
+            # Spuštění skenování s filtrem
             async with BleakScanner(detection_callback):
-                await device_event.wait() # Čekáme, dokud ESP32 nezačne vysílat
+                await device_event.wait() # Čekání, dokud ESP32 nezačne vysílat
                 
             publish_status("CONNECTING")
             await asyncio.sleep(0.1)
             
-            # Jakmile je zařízení nalezeno, pokusíme se o rychlé připojení (max 3 pokusy)
+            # Jakmile je zařízení nalezeno, pokus o rychlé připojení (max 3 pokusy)
             for attempt in range(3):
                 try:
                     async with BleakClient(target_device, disconnected_callback=disconnected_callback, timeout=3.0) as client_ble:
@@ -159,18 +159,18 @@ async def connect_and_listen():
                                     
                             await asyncio.sleep(0.1)
                             
-                    break # Opustíme cyklus po korektním odpojení
+                    break # Opuštění cyklu po korektním odpojení
                 except Exception as e:
                     if "was not found" in str(e):
                         break 
                     await asyncio.sleep(0.2) 
             
-            # Po rozpadu spojení přejdeme zpět do módu spánku
+            # Po rozpadu spojení přejde zpět do režimu spánku
             publish_status("SLEEP")
             await asyncio.sleep(0.2)
             
         except Exception as e:
-            # Zachycení neočekávaných hardwarových chyb adaptéru
+            # Zachycení neočekávaných hardwarových chyb
             await asyncio.sleep(0.2)
 
 # ==========================================
