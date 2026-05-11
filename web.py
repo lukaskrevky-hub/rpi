@@ -178,7 +178,7 @@ def log_activity(action):
         with open("/home/lukas/rpi/aktivita_systemu.log", "a") as f:
             f.write(f"[{timestamp}] - {action}\n")
     except IOError: 
-        pass # Pokud nejde zapsat (např. práva), chybu ignoruj
+        pass # Pokud nejde zapsat (např. práva), chybu ignoruje
     print(f"Zapsáno do logu: [{timestamp}] - {action}")
 
 def speak_text(text):
@@ -187,16 +187,14 @@ def speak_text(text):
     """
     # Provede se pouze, pokud je čtení v systému zapnuto (přepíná se v horní liště webu)
     if system_state.get("tts_enabled", False):
-        # NOVÉ: Zrušen nevhodný převod na malá písmena, aby espeak mohl normálně číst texty jako "SVĚTLO".
-        # Přidáno explicitní nahrazení zkratky "ZAP/VYP" na reálná slova a vytvoření mezer kolem jiných lomítek.
         upraveny_text = text.replace("ZAP/VYP", "Zapnout vypnout") \
                             .replace("/", " ") \
                             .replace("+", " plus") \
                             .replace("-", " mínus")
         try:
-            # Trik: Nejprve tvrdě ukončíme případný probíhající proces espeak (pokud uživatel posunul joystick rychle)
+            #  Ukončení probíhajícího procesu espeak (při rychlém přepínání karet)
             subprocess.run(["killall", "espeak"], stderr=subprocess.DEVNULL)
-            # Zpomalení řeči (-s 140) a výběr lepšího hlasu (cs+f2 = žena, cs+m3 = muž)
+            # Zpomalení řeči
             subprocess.Popen(["espeak", "-v", "cs+f2", "-s", "140", upraveny_text], stderr=subprocess.DEVNULL)
         except Exception as e: 
             print(e)
@@ -219,7 +217,7 @@ def send_http_request(url):
 def on_mqtt_message(client, userdata, msg):
     """Tato funkce se spustí automaticky POKAŽDÉ, když do RPi dorazí data od ESP32 ovladače."""
     try:
-        topic = msg.topic # Dozvídáme se, v jakém tématu zpráva přišla
+        topic = msg.topic # V jakém tématu zpráva přišla
         payload = msg.payload.decode() # Přeložení surových dat na text (např. "UP")
         
         # Ošetření stavu Bluetooth spojení
@@ -256,23 +254,23 @@ def move_selection(direction):
 
 def go_back(delayed=False):
     """
-    Složitější logika pro navigaci ZPĚT.
-    Zjišťuje, jestli jsme zanořeni v podmenu (pamatuje si to v historii), nebo jsme na hlavní obrazovce.
-    Parametr delayed=True znamená, že jsme na kartu kliknuli a musíme počkat na doznívání flash animace.
+    Logika pro navigaci ZPĚT.
+    Zjišťuje, jestli je uživatel v podmenu (pamatuje si historii), nebo na hlavní obrazovce.
+    Parametr delayed=True, čekání na dokončení animace.
     """
     def switch_logic():
         # Pokud je požadavek zpožděný, chvíli vlákno uspíme
         if delayed:
             time.sleep(0.4) 
 
-        # Máme něco v historii? (Jsme v podmenu např. TV)
+        # Je něco v historii? (uživatel v podmenu např. TV)
         if len(system_state["menu_history"]) > 0:
             # Vrátíme se do stavu před zanořením
             prev_state = system_state["menu_history"].pop()
             system_state["current_menu"] = prev_state["menu"]
             system_state["selected_index"] = prev_state["index"]
             
-            # NOVÉ: Zprávu o historii přepíšeme pouze tehdy, když zrovna nesvítí poplach / požadavek
+            # Zprávu o historii přepíšeme pouze tehdy, když zrovna nesvítí poplach / požadavek
             if not system_state.get("active_alert"):
                 system_state["message"] = prev_state["message"]
         else:
@@ -283,7 +281,7 @@ def go_back(delayed=False):
                 system_state["current_menu"] = MENU_DEVICES
                 system_state["selected_index"] = 0
                 
-                # NOVÉ: Ochrana proti smazání poplachu při přepnutí režimu
+                # Ochrana proti smazání poplachu při přepnutí režimu
                 if not system_state.get("active_alert"):
                     system_state["message"] = "Režim: ZAŘÍZENÍ"
             else:
@@ -291,7 +289,7 @@ def go_back(delayed=False):
                 system_state["current_menu"] = MENU_HOME
                 system_state["selected_index"] = 0
                 
-                # NOVÉ: Ochrana proti smazání poplachu
+                # Ochrana proti smazání poplachu
                 if not system_state.get("active_alert"):
                     system_state["message"] = "Připraveno"
                 
@@ -324,14 +322,14 @@ def trigger_action():
             "menu": system_state["current_menu"], "index": system_state["selected_index"], "message": system_state["message"]
         })
         
-        # FUNKCE PRO ZPOŽDĚNÝ PŘECHOD (UX Vylepšení):
-        # Aby frontend stihl přehrát 400ms zelenou animaci na vybrané kartě ještě PŘEDTÍM, 
+        # FUNKCE PRO ZPOŽDĚNÝ PŘECHOD:
+        # Aby frontend stihl přehrát animaci na vybrané kartě ještě předtím, 
         # než se menu kompletně přepne na např. ovladač TV, provedeme samotné přepnutí 
         # ve vedlejším vlákně s malým zpožděním.
         def delayed_submenu_switch():
             time.sleep(0.4) 
             
-            # NOVÉ: Pokud je aktivní poplach/požadavek, nepřepisujeme ho názvem menu
+            # Pokud je aktivní poplach/požadavek, nepřepisujeme ho názvem menu
             if not system_state.get("active_alert"):
                 system_state["message"] = f"Menu: {item['label']}"
                 
@@ -342,26 +340,26 @@ def trigger_action():
         threading.Thread(target=delayed_submenu_switch).start()
         
     # --- 2. OBYČEJNÉ NÁPISY A ZPĚT ---
-    elif item.get("type") == "back": go_back(delayed=True) # Zde posíláme True, abychom také počkali na animaci
+    elif item.get("type") == "back": go_back(delayed=True) # Zde posílání True, čekání na animaci
     elif item.get("type") == "cancel": 
-        # NOVÉ: Zrušení poplachu i běžných požadavků ze strany pacienta ("ZRUŠIT")
+        # Zrušení poplachu i běžných požadavků ze strany pacienta ("ZRUŠIT")
         system_state["active_alert"] = False
         system_state["sos_active"] = False
-        system_state["active_requests"] = [] # NOVÉ: Vymaže celý seznam kumulovaných požadavků
+        system_state["active_requests"] = [] # Vymaže celý seznam požadavků
         system_state["message"] = "Připraveno"
         
     elif item.get("type") == "req": 
-        # NOVÉ: U požadavků uzamkneme lištu nastavením active_alert = True
+        # U požadavků uzamkneme lištu nastavením active_alert = True
         system_state["active_alert"] = True
         
-        # NOVÉ: Přidáme aktuální požadavek do seznamu (pokud tam už náhodou není)
+        # Přidáme aktuální požadavek do seznamu, pokud tam ještě není
         if item['label'] not in system_state["active_requests"]:
             system_state["active_requests"].append(item['label'])
             
-        # NOVÉ: Složíme text ze všech aktivních požadavků (např. "MÁM ŽÍZEŇ + MÁM HLAD")
+        # Složení textu ze všech aktivních požadavků (např. "MÁM ŽÍZEŇ + MÁM HLAD")
         spojeny_text = " + ".join(system_state["active_requests"])
         
-        # NOVÉ: Pokud už náhodou běží SOS, zachováme slovo POPLACH, jinak dáme Vybráno
+        # Pokud už běží SOS, zachováme slovo POPLACH, jinak dáme Vybráno
         if system_state["sos_active"]:
             system_state["message"] = f"POPLACH: {spojeny_text}"
         else:
@@ -369,20 +367,20 @@ def trigger_action():
     
     # --- 3. KRIZOVÝ SOS POPLACH (Vizuální lokální poplach + Sesterna chytrepomucky.cz) ---
     elif item.get("type") == "sos":
-        # NOVÉ: Uzamkne lištu i pro SOS
+        # Uzamknutí lišty pro SOS
         system_state["active_alert"] = True     
         system_state["sos_active"] = True       # Rozbliká prohlížeč červeně
         system_state["sos_timer"] = time.time() # Začne měřit 120 vteřin
         
-        # NOVÉ: Přidáme POMOC do seznamu požadavků na první místo (je nejdůležitější), pokud tam není
+        # Přidání POMOC do seznamu požadavků na první místo, pokud tam není
         if item['label'] not in system_state["active_requests"]:
             system_state["active_requests"].insert(0, item['label'])
             
-        # NOVÉ: Složíme text i se všemi předchozími volbami
+        # Složení textu i se všemi předchozími volbami
         spojeny_text = " + ".join(system_state["active_requests"])
         system_state["message"] = f"POPLACH: {spojeny_text}"
         
-        # NOVÉ: Odeslání kritické hlášky na vzdálený dohledový server vedoucího
+        # Odeslání kritické hlášky na vzdálený dohledový server
         # Funkce urllib.parse.quote() se postará o to, aby se mezery a háčky bezpečně přepsaly do webového formátu (např. %20)
         encoded_msg = urllib.parse.quote("Pacient potřebuje pomoc")
         url = f"https://chytrepomucky.cz/smarthome/klient16drv651vd6sJwer95d/api.php?zvonek=1&hlaska={encoded_msg}&kontext=Pokoj%2012"
@@ -393,14 +391,14 @@ def trigger_action():
         try: mqtt_client.publish("zigbee2mqtt/zasuvka/set", '{"state": "TOGGLE"}')
         except: pass
         
-        # NOVÉ: Zprávu o připravenosti nastavíme jen tehdy, když nevisí poplach/požadavek
+        # Zpráva o připravenosti jen tehdy, když nevisí poplach/požadavek
         if not system_state.get("active_alert"):
             system_state["message"] = "Připraveno"
 
-    # --- 5. EXTERNÍ HTTP POŽADAVKY (Případ Benetronic) ---
+    # --- 5. EXTERNÍ HTTP POŽADAVKY (Benetronic) ---
     elif item.get("type") == "http_get":
         url = item.get("url") # Vyčte konkrétní adresu z definice menu
-        # NOVÉ: Nastaveno na "Připraveno", pouze pokud není aktivní poplach.
+        # Nastaveno na "Připraveno", pouze pokud není aktivní poplach.
         if not system_state.get("active_alert"):
             system_state["message"] = "Připraveno" 
         # Okamžitě odešle dotaz na pozadí, aniž by zamrznul systém
@@ -411,8 +409,8 @@ def trigger_action():
         code_file = item['code']
         device_type = item.get('device', 'tv') 
         
-        # Rozhodovací strom: Zjistí, kterou rodinu značek budeme pro vysílání procházet
-        # NOVÉ: Všude přidána kontrola if not active_alert pro ochranu výstražné zprávy v liště
+        # Rozhodovací strom: Zjistí, které zařízení bude pro vysílání procházet
+        # Kontrola if not active_alert pro ochranu výstražné zprávy v liště
         if device_type == "tv": 
             brands = AVAILABLE_TV_BRANDS
             if not system_state.get("active_alert"): system_state["message"] = f"TV: {item['label']}"
@@ -427,13 +425,13 @@ def trigger_action():
             if not system_state.get("active_alert"): system_state["message"] = f"LED: {item['label']}"
         else: brands = []
         
-        # Algoritmus iteruje přes všechny definované značky (Kobercový nálet)
+        # Algoritmus iteruje přes všechny definované značky
         for brand in brands:
             # Přesné systémové cesty v Linuxu pro oba druhy datových záznamů
             proto_path = f"/home/lukas/rpi/ir_codes/protokoly/{device_type}/{brand}/{code_file}.txt"
             raw_path = f"/home/lukas/rpi/ir_codes/raw_data/{device_type}/{brand}/{code_file}.txt"
 
-            # --- METODA A: ČISTÝ PROTOKOL (Nejvyšší inženýrská priorita) ---
+            # --- METODA A: ČISTÝ PROTOKOL (vyšší priorita) ---
             if os.path.exists(proto_path):
                 try:
                     with open(proto_path, "r") as f:
@@ -453,18 +451,18 @@ def trigger_action():
                     subprocess.run(["ir-ctl", "-d", "/dev/lirc0", "-S", ir_arg], check=True)
                     time.sleep(0.3) # Pauza mezi pakety pro zamezení interference
                     
-                    # EXTRÉMNĚ DŮLEŽITÉ: Příkaz 'continue' zajistí, že pokud se vyslal čistý protokol,
+                    # Příkaz 'continue' zajistí, že pokud se vyslal čistý protokol,
                     # skript přeskočí metodu B a jde na další značku televize.
                     continue 
                 except Exception as e:
                     print(f"Chyba u protokolu: {e}")
 
             # --- METODA B: RAW DATA (Fallback / Záchranná síť) ---
-            # Tento kód se spustí POUZE, pokud selže Metoda A. Využívá se hlavně pro masivní pakety klimatizací.
+            # Kód se spustí POUZE, pokud selže Metoda A, hlavně pro multipakety klimatizací.
             if os.path.exists(raw_path):
                 print(f"IR Vysílání RAW ({device_type.upper()} - {brand.upper()}): {raw_path}")
                 try: 
-                    # Příkaz ir-ctl --send odešle surové časové pulzy (šumový záznam)
+                    # Příkaz ir-ctl --send odešle surové RAW data
                     subprocess.run(["ir-ctl", "-d", "/dev/lirc0", "--send", raw_path], check=True)
                     time.sleep(0.3) 
                 except Exception as e: print(e)
@@ -478,7 +476,7 @@ mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 mqtt_client.on_message = on_mqtt_message
 
 def on_connect(client, userdata, flags, reason_code, properties):
-    # Ihned po nastartování brokeru se systém přihlásí k odběru (zavadí ucho) na vše v sekci 'joystick'
+    # Ihned po nastartování brokeru se systém přihlásí k odběru na vše v sekci 'joystick'
     client.subscribe("joystick/#")
 mqtt_client.on_connect = on_connect
 
@@ -495,19 +493,19 @@ def start_mqtt():
 # ==========================================
 @app.route('/')
 def index():
-    """Základní routa. Když zadáš IP do prohlížeče, pošle se ti grafický vzhled (HTML)."""
+    """Základní cesta. Po zadání IP do prohlížeče pošle grafický vzhled (HTML)."""
     return render_template('index.html')
 
 @app.route('/api/status')
 def get_status():
     """
-    AJAX endpoint. Z tohoto místa si mobil/PC tahá 3x za vteřinu aktuální stav (zda má pípat SOS, jakou kartu zvýraznit apod.)
+    AJAX endpoint, aktualizuje 3x za vteřinu aktuální stav
     """
-    # Logika pro automatické utišení vizuálního SOS alarmu po 120 vteřinách
+    # Logika pro automatické ukončení vizuálního SOS alarmu po 120 vteřinách
     if system_state.get("sos_active") and (time.time() - system_state.get("sos_timer", 0) > 120):
         system_state["sos_active"] = False
         
-        # NOVÉ: Po vypršení času uvolníme lištu a smažeme seznam požadavků
+        # Po vypršení času uvolní lištu a smaže seznam požadavků
         system_state["active_alert"] = False 
         system_state["active_requests"] = [] 
         system_state["message"] = "Připraveno"
@@ -516,10 +514,10 @@ def get_status():
 
 @app.route('/api/click/<int:index>', methods=['POST'])
 def web_click(index):
-    """Pomocná funkce, pokud na displej u postele ťukne doktor prstem místo joysticku."""
+    """Pomocná funkce, pokud na displej u postele ťukne někdo prstem místo joysticku."""
     if 0 <= index < len(system_state["current_menu"]):
         system_state["selected_index"] = index
-        trigger_action() # Tímto uměle vyvoláme stisknutí tlačítka
+        trigger_action() # Umělé vyvolání stisknutí tlačítka
     return jsonify({"status": "ok"})
 
 @app.route('/api/reset', methods=['POST'])
@@ -527,12 +525,12 @@ def reset_message():
     """Vypnutí SOS poplachu a chybových zpráv na obrazovce tlačítkem 'VYŘÍZENO'."""
     system_state["sos_active"] = False
     
-    # NOVÉ: Uvolnění lišty sestrou (zmáčknutím VYŘÍZENO) a smazání fronty
+    # Uvolnění lišty sestrou (zmáčknutím VYŘÍZENO) a smazání fronty
     system_state["active_alert"] = False 
     system_state["active_requests"] = [] 
     system_state["message"] = "Připraveno"
     
-    # NOVÉ: Odeslání informace na sesternu (chytrepomucky.cz), že je poplach zrušen
+    # Odeslání informace na sesternu (chytrepomucky.cz), že je poplach zrušen
     url = "https://chytrepomucky.cz/smarthome/klient16drv651vd6sJwer95d/api.php?zvonek=0&hlaska=Vyrizeno&kontext=Pokoj%2012"
     threading.Thread(target=send_http_request, args=(url,)).start()
     
@@ -543,7 +541,7 @@ def trigger_ota():
     """Skrz MQTT pošle signál, že si má ESP32 ovladač sám sobě updatovat kód přes WiFi."""
     mqtt_client.publish("joystick/ota", "START")
     
-    # NOVÉ: Ochrana před přepsáním aktivního poplachu textem o aktualizaci
+    # Ochrana před přepsáním aktivního poplachu textem o aktualizaci
     if not system_state.get("active_alert"):
         system_state["message"] = "Povel k aktualizaci odeslán."
     return jsonify({"status": "ota_started"})
@@ -556,7 +554,7 @@ def toggle_tts():
     if system_state["tts_enabled"]: 
         speak_text("Hlasový asistent zapnut")
     else: 
-        # Zastaví rozjetý espeak pomocí linuxového příkazu killall
+        # Zastaví espeak pomocí příkazu killall
         subprocess.run(["killall", "espeak"], stderr=subprocess.DEVNULL)
     return jsonify({"status": "ok", "tts_enabled": system_state["tts_enabled"]})
 
@@ -567,9 +565,9 @@ def toggle_tts():
 if __name__ == '__main__':
     log_activity("--- SYSTÉM NASTARTOVÁN ---")
     
-    # 1. Start MQTT klienta jako Daemona (vlákno se poslušně ukončí, pokud spadne hlavní web)
+    # 1. Start MQTT klienta jako procesu na pozadí, vlákno se ukončí, pokud spadne hlavní web
     threading.Thread(target=start_mqtt, daemon=True).start()
     
     # 2. Start samotného webového serveru
-    # host='0.0.0.0' znamená, že webová stránka je přístupná všem zařízením na domácí Wi-Fi, ne jen samotné malině.
+    # host='0.0.0.0' webová stránka je přístupná všem zařízením na lokální síti
     app.run(host='0.0.0.0', port=5000, debug=False)
